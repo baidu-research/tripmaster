@@ -4,8 +4,9 @@ A High Level Framework for Deep Learning App and Pipelines for Paddle.
 
 ## Install
 
+```
 pip install tripmaster
-
+```
 
 ## Document
 
