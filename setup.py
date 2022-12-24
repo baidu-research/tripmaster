@@ -18,19 +18,18 @@ with open('README.md') as readme_file:
     README = readme_file.read()
 
 setup_args = dict(
-    name='pangu-framework',
-    version='1.1.1-beta',
-    description='A High Level Framework for Deep Learning App and Pipelines.',
+    name='tripmaster',
+    version='1.0.0',
+    description='A High Level Framework for Deep Learning App and Pipelines for Paddle.',
+    url='https://github.com/baidu-research/tripmaster',
     long_description_content_type="text/markdown",
     long_description=README,
     license='Apache',
-    packages=find_packages(include=["pangu", "pangu.*"]),
+    packages=find_packages(include=["tripmaster", "tripmaster.*"]),
     include_package_data=True,
     author='Mingming Sun',
     author_email='sunmingming01@baidu.com',
     keywords=['Deep Learning', 'Framework', 'Pipelines'],
-    url='',
-    download_url=''
 )
 
 install_requires = [
