@@ -1,0 +1,88 @@
+io:
+  input:
+    task:
+      training_ratio: 0.9
+  output:
+    serialize:
+      save: True
+      path: ${job.startup_path}/mnist.inference.pkl
+launcher:
+  type: local
+  strategies:
+    local:
+job:
+  ray_tune: false
+  testing: False
+  test:
+    sample_num: 16
+    epoch_num: 3
+  batching:
+    type: fixed_size
+    strategies:
+      fixed_size:
+        batch_size: 16
+        drop_last: False
+  distributed: "no"
+  dataloader:
+    worker_num: 0 # load data using multi-process
+    pin_memory: false
+    timeout: 0
+    resource_allocation_range: 10000
+    drop_last: False
+  resource:
+    computing:
+      cpu_per_trial: 4
+      cpus: 4
+      gpu_per_trial: 0
+      gpus: 0
+    memory:
+      inferencing_memory_limit: 60000
+      learning_memory_limit: 25000
+  metric_logging:
+    type: tableprint
+    strategies:
+      tableprint: { }
+system:
+  serialize:
+    save: True
+    path: ${job.startup_path}/mnist.system.pkl
+    load: False
+  task:
+    evaluator:
+  problem:
+    evaluator:
+  machine:
+    arch:
+      image_size: [28, 28]
+      channel1: 32
+      channel2: 64
+      conv_kernel: 3
+      pool_kernel: 2
+      dropout1: 0.25
+      dropout2: 0.5
+      ff_dim: 128
+      class_num: 10
+  learner:
+    optimizer:
+      strategy:
+        epochs: 3
+      algorithm:
+        lr: 1e-3
+      lr_scheduler:
+        gamma: 0.8
+      gradient_clip_val: 1
+    modelselector:
+      stage: "machine"
+      channel: "dev"
+      metric: "label.precision"
+      better: "max"
+      save_prefix: "best"
+    evaluator_trigger:
+      trigger_at_begin: False
+      evaluate_only: False
+      interval: 1
+      epoch_interval: -1
+
+  
+  
+  
