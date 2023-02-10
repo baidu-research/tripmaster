@@ -19,7 +19,7 @@ def load_plugins(plugin_name, plugin_init_path, callbacks):
         except Exception as e:
             logger.warning(f"unable to import plugin {module_path}: {e}")
             logger.exception(e)
-            # continue
+            continue
 
         for attribute_name in dir(module):
             attribute = getattr(module, attribute_name)
