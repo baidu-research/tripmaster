@@ -114,9 +114,9 @@ def launch(app_class):
 
     startup_script_path = rest_args[0]
 
-    conf_path = parsed_args.conf
+    conf_paths = parsed_args.conf
 
-    hyper_params = app_class.parse_hyper_parameters(conf_path, rest_args[1:])
+    hyper_params = app_class.parse_hyper_parameters(conf_paths, rest_args[1:])
     from tripmaster.core.components.repo import TMRepoManager
     if hyper_params.repo:
         TMRepoManager.create(hyper_params.repo)
@@ -128,7 +128,7 @@ def launch(app_class):
     launcher_type = hyper_params.launcher.type
     launcher_params = hyper_params.launcher.strategies[launcher_type]
     if launcher_params:
-        launcher_params.conf_path = conf_path
+        launcher_params.conf_paths = conf_paths
 
     launcher_class = TMLauncherFactory.get().choose(launcher_type)
     launcher = launcher_class(launcher_params)

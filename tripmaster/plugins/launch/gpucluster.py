@@ -1,4 +1,4 @@
-import dataclasses
+
 from dataclasses import dataclass, field, fields
 from typing import List
 
@@ -119,22 +119,36 @@ def create_packages_archive(packages, filename):
     tar.close()
 
 
+def dataclass_from_args(className, argDict):
+    fieldSet = {f.name for f in fields(className) if f.init}
+    filteredArgDict = {k : v for k, v in argDict.items() if k in fieldSet}
+    return className(**filteredArgDict)
 
 @dataclass
-class PaddleCloudConfig:
+class GPUClusterSubmissionConfig:
     """
-    cloud mode configurations
+    cluster submission configurations
     """
-    conf_path: str = ""
-    startup_script_path: str = ""
+
+    package_mode: str = ""
+    site_packages_path: str = ""
+    ignore_packages: List[str] = field(default_factory=lambda: [])
     files: List[str] = field(default_factory=lambda: [])
 
+@dataclass
+class GPUClusterFileSystemConfig:
+    """
+    cluster submission configurations
+    """
     fs_name: str = ""
     fs_ugi: str = ""
-    output_path: str = ""
     afs_remote: str = ""
     afs_local: str = ""
-    image_addr: str = ""
+
+    output_path: str = ""
+
+@dataclass
+class GPUClusterEnvConfig:
     custom_script: str = ""
     extra_option: str = ""
 
@@ -142,39 +156,46 @@ class PaddleCloudConfig:
     python_path: str = "python"
     pip_path: str = "pip"
 
-    package_mode: str = ""
-    site_packages_path: str = ""
-    ignore_packages: List[str] = field(default_factory=lambda: [])
 
-#    python_home: str = ""
+@dataclass
+class GPUClusterConfig:
+    """
+    cloud mode configurations
+    """
+    cluster_client_command: str = ""
+    cluster_options: dict = field(default_factory=lambda: {})
+    conf_paths: List[str] = field(default_factory=lambda: [])
 
-    group_name: str = ""
-    job_version: str = ""
-
-    gpu_request: int = 1
+    submission: GPUClusterSubmissionConfig = field(default_factory=lambda: GPUClusterSubmissionConfig())
+    fs: GPUClusterFileSystemConfig = field(default_factory=lambda: GPUClusterFileSystemConfig())
+    env: GPUClusterEnvConfig = field(default_factory=lambda: GPUClusterEnvConfig())
 
     @classmethod
     def parse(cls, hyper_params):
 
-        config = PaddleCloudConfig()
+        config = GPUClusterConfig()
         for field in fields(config):
             if field.name in hyper_params:
                 setattr(config, field.name, hyper_params[field.name])
+
+        config.fs = dataclass_from_args(GPUClusterFileSystemConfig, hyper_params.fs)
+        config.submission = dataclass_from_args(GPUClusterSubmissionConfig, hyper_params.submission)
+        config.env = dataclass_from_args(GPUClusterEnvConfig, hyper_params.env)
 
         return config
 
 
 
-class PaddleCloudJobLauncher(TMJobLauncher):
+class GPUClusterJobLauncher(TMJobLauncher):
 
     """
     GPUClassRunner
     """
 
-    Name = "paddlecloud"
+    Name = "gpucluster"
 
     def __init__(self, hyper_params):
-        super().__init__(PaddleCloudConfig.parse(hyper_params))
+        super().__init__(GPUClusterConfig.parse(hyper_params))
         self.submmit_directory = None
         self.job = None
 
@@ -193,13 +214,13 @@ class PaddleCloudJobLauncher(TMJobLauncher):
 
         with open(os.path.join(self.submmit_directory, "config.ini"), "w") as f:
 
-            f.write(f"fs_name = \"{self.hyper_params.fs_name}\"\n")
-            f.write(f"fs_ugi = \"{self.hyper_params.fs_ugi}\"\n")
+            f.write(f"fs_name = \"{self.hyper_params.fs.fs_name}\"\n")
+            f.write(f"fs_ugi = \"{self.hyper_params.fs.fs_ugi}\"\n")
 
-            f.write(f"output_path = {self.hyper_params.output_path}\n")
+            f.write(f"output_path = {self.hyper_params.fs.output_path}\n")
 
-            afs_remote = self.hyper_params.afs_remote
-            afs_local = self.hyper_params.afs_local
+            afs_remote = self.hyper_params.fs.afs_remote
+            afs_local = self.hyper_params.fs.afs_local
             if afs_remote and afs_local:
                 f.write(f"mount_afs = \"true\"\n")
                 f.write(f"afs_remote_mount_point = \"{afs_remote}\"\n")
@@ -264,7 +285,7 @@ class PaddleCloudJobLauncher(TMJobLauncher):
 $HADOOP_HOME/bin/hadoop fs \
 -D fs.default.name={fs_name} \
 -D hadoop.job.ugi={fs_ugi} "$@"
-""".format(fs_name=self.hyper_params.fs_name, fs_ugi=self.hyper_params.fs_ugi)
+""".format(fs_name=self.hyper_params.fs.fs_name, fs_ugi=self.hyper_params.fs.fs_ugi)
 
         with open(os.path.join(self.submmit_directory, "afs.sh"), "w") as f:
             f.write(afs_command)
@@ -279,7 +300,7 @@ $HADOOP_HOME/bin/hadoop fs \
         afs_commmand = os.path.join(self.submmit_directory, "afs.sh")
 
         result = subprocess.run(['sh', afs_commmand, '-stat',
-                                 self.hyper_params.site_packages_path],
+                                 self.hyper_params.submission.site_packages_path],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         if result.returncode == 0:
@@ -289,8 +310,8 @@ $HADOOP_HOME/bin/hadoop fs \
         local_site_packages_path = sysconfig.get_paths()["purelib"]
 
         output_filename = os.path.join(self.submmit_directory,
-                                       os.path.basename(self.hyper_params.site_packages_path))
-        escaped_packages = set(self.hyper_params.ignore_packages)
+                                       os.path.basename(self.hyper_params.submission.site_packages_path))
+        escaped_packages = set(self.hyper_params.submission.ignore_packages)
 
         escaped_package_paths = set(os.path.join("site-packages", x) for x in escaped_packages)
 
@@ -309,7 +330,7 @@ $HADOOP_HOME/bin/hadoop fs \
         logger.info("Site-packages of current python has been packaged")
 
         result = subprocess.run(['sh', afs_commmand, '-put', output_filename,
-                                 self.hyper_params.site_packages_path],
+                                 self.hyper_params.submission.site_packages_path],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         if result.returncode == 0:
@@ -335,7 +356,7 @@ $HADOOP_HOME/bin/hadoop fs \
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         requirements = result.stdout.decode("utf-8").split("\n")
-        escaped_packages = set(self.hyper_params.ignore_packages)
+        escaped_packages = set(self.hyper_params.submission.ignore_packages)
 
         needed_requirements = [x for x in requirements
                                if not any(x.lower().startswith(y + '-') for y in escaped_packages)]
@@ -360,9 +381,9 @@ $HADOOP_HOME/bin/hadoop fs \
         #     runner_path = runner_path[:-3] + "py"
         # self.runner_path = runner_path
 
-        files = self.hyper_params.files if self.hyper_params.files else []
+        files = self.hyper_params.submission.files if self.hyper_params.submission.files else []
 
-        files.extend(self.hyper_params.conf_path)
+        files.extend(self.hyper_params.conf_paths)
         files.append(self.job.startup_script_path)
 
         for f in files:
@@ -397,23 +418,24 @@ $HADOOP_HOME/bin/hadoop fs \
         assert self.hyper_params.package_mode in {"pack_local", "online_install"}
 
         if self.hyper_params.package_mode == "pack_local":
-            assert self.hyper_params.site_packages_path is not None and self.hyper_params.site_packages_path.strip()
+            site_packages_path = self.hyper_params.submission.site_packages_path
+            assert site_packages_path is not None and site_packages_path.strip()
             package_script = """
             sh ./afs.sh -get {remote_site_packages_path} ./site-packages.tar.gz
             tar zxf site-packages.tar.gz 
             export PYTHONPATH=`pwd`/site-packages:$PYTHONPATH
-            """.format(remote_site_packages_path=self.hyper_params.site_packages_path)
+            """.format(remote_site_packages_path=site_packages_path)
         else: # self.hyper_params.package_mode == "online_install":
             package_script = "{pip_path} install -r requirements.txt".format(pip_path=self.hyper_params.pip_path)
 
-        remote_conf_paths = [os.path.basename(x) for x in self.hyper_params.conf_path]
+        remote_conf_paths = [os.path.basename(x) for x in self.hyper_params.conf_paths]
 
         command = "{python_path} $WORK_HOME/{runner_file_name} {extra_option} --conf {conf_file_name} --experiment {experiment_name} launcher.type=local".format(
-            python_path=self.hyper_params.python_path,
-            runner_file_name=os.path.basename(self.job.startup_script_path),
+            python_path=self.hyper_params.env.python_path,
+            runner_file_name=os.path.basename(self.job.env.startup_script_path),
             conf_file_name=" ".join(remote_conf_paths),
             experiment_name=self.job.job_name,
-            extra_option=self.hyper_params.extra_option,
+            extra_option=self.hyper_params.env.extra_option,
     )
 
         job_script = """
@@ -451,23 +473,21 @@ $HADOOP_HOME/bin/hadoop fs \
 
 
         job_script = """#!/bin/bash
-paddlecloud job  train \
+{cluster_client_command} job  train \
 --job-name {job_name} \
 --job-conf {config_file_path} \
---group-name {group_name} \
 --start-cmd "{start_cmd}" \
 --file-dir . \
---job-version {job_version}  \
---image-addr {image_addr} \
---k8s-gpu-cards {k8s_gpu_cards} \
-        """.format(job_name=self.job.name(),
+        """.format(cluster_client_command=self.hyper_params.cluster_client_command,
+                   job_name=self.job.name(),
                    config_file_path=os.path.join(self.submmit_directory, "config.ini"),
-                   group_name=self.hyper_params.group_name,
                    start_cmd="sh job.sh",
-                   job_version=self.hyper_params.job_version,
-                   k8s_gpu_cards=self.hyper_params.gpu_request,
-                   image_addr=self.hyper_params.image_addr
                    )
+        cluster_options = []
+        for key, val in self.hyper_params.cluster_options:
+            cluster_options.append(f"--{key} {val}")
+
+        job_script = job_script + " " + " ".join(cluster_options)
 
         # --image-addr {image_addr} \
         with open(os.path.join(self.submmit_directory, "run.sh"), 'w') as f:

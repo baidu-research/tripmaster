@@ -14,9 +14,11 @@ logger = logging.getLogger(__name__)
 
 import paddle
 
-
-strategy = fleet.DistributedStrategy()
-fleet.init(is_collective=True, strategy=strategy)
+try:
+    strategy = fleet.DistributedStrategy()
+    fleet.init(is_collective=True, strategy=strategy)
+except:
+    logger.warning("fleet not able to initialize")
 
 def reduce_mean(tensor, nprocs):
     """
