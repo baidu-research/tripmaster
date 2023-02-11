@@ -390,8 +390,9 @@ $HADOOP_HOME/bin/hadoop fs \
             if os.path.isabs(f):
                 source_path = f
             else:
-                source_path = os.path.join(self.job.startup_path, f)
-            os.symlink(source_path, os.path.join(self.submmit_directory, os.path.basename(source_path)))
+                source_path = os.path.abspath(os.path.join(self.job.startup_path, f))
+            target_path = os.path.join(self.submmit_directory, os.path.basename(source_path))
+            os.symlink(source_path, target_path)
 
     # def write_app_conf(self):
     #     """
@@ -415,9 +416,9 @@ $HADOOP_HOME/bin/hadoop fs \
 
         """
 
-        assert self.hyper_params.package_mode in {"pack_local", "online_install"}
+        assert self.hyper_params.submission.package_mode in {"pack_local", "online_install"}
 
-        if self.hyper_params.package_mode == "pack_local":
+        if self.hyper_params.submission.package_mode == "pack_local":
             site_packages_path = self.hyper_params.submission.site_packages_path
             assert site_packages_path is not None and site_packages_path.strip()
             package_script = """
@@ -426,13 +427,13 @@ $HADOOP_HOME/bin/hadoop fs \
             export PYTHONPATH=`pwd`/site-packages:$PYTHONPATH
             """.format(remote_site_packages_path=site_packages_path)
         else: # self.hyper_params.package_mode == "online_install":
-            package_script = "{pip_path} install -r requirements.txt".format(pip_path=self.hyper_params.pip_path)
+            package_script = "{pip_path} install -r requirements.txt".format(pip_path=self.hyper_params.submission.pip_path)
 
         remote_conf_paths = [os.path.basename(x) for x in self.hyper_params.conf_paths]
 
         command = "{python_path} $WORK_HOME/{runner_file_name} {extra_option} --conf {conf_file_name} --experiment {experiment_name} launcher.type=local".format(
             python_path=self.hyper_params.env.python_path,
-            runner_file_name=os.path.basename(self.job.env.startup_script_path),
+            runner_file_name=os.path.basename(self.job.startup_script_path),
             conf_file_name=" ".join(remote_conf_paths),
             experiment_name=self.job.job_name,
             extra_option=self.hyper_params.env.extra_option,
@@ -455,10 +456,10 @@ $HADOOP_HOME/bin/hadoop fs \
             export WORK_HOME=`pwd`
             {custom_script}
             {command}
-            """.format(env_init_script=self.hyper_params.env_init_script,
-                       python_path=self.hyper_params.python_path,
+            """.format(env_init_script=self.hyper_params.env.env_init_script,
+                       python_path=self.hyper_params.env.python_path,
                        package_script=package_script,
-                       custom_script=self.hyper_params.custom_script,
+                       custom_script=self.hyper_params.env.custom_script,
                        command=command)
 
         with open(os.path.join(self.submmit_directory, "job.sh"), 'w') as f:
@@ -484,8 +485,8 @@ $HADOOP_HOME/bin/hadoop fs \
                    start_cmd="sh job.sh",
                    )
         cluster_options = []
-        for key, val in self.hyper_params.cluster_options:
-            cluster_options.append(f"--{key} {val}")
+        for key, val in self.hyper_params.cluster_options.items():
+            cluster_options.append(f"--{key.replace('_', '-')} {val}")
 
         job_script = job_script + " " + " ".join(cluster_options)
 
@@ -510,9 +511,9 @@ $HADOOP_HOME/bin/hadoop fs \
         logger.info(f"submit directory = {self.submmit_directory}")
 
         self.write_afs_command()
-        if self.hyper_params.package_mode == "pack_local":
+        if self.hyper_params.submission.package_mode == "pack_local":
             self.pack_site_packages()
-        elif self.hyper_params.package_mode == "online_install":
+        elif self.hyper_params.submission.package_mode == "online_install":
             self.save_requirements()
         else:
             raise Exception(f"bad package_mode setting, must be [pack_local|online_install]")
