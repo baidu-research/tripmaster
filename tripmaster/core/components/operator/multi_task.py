@@ -1,10 +1,10 @@
-from build.lib.TM.core.components.operator.learner import TMLearner
+
 from tripmaster.core.components.operator.strategies.model_selection import BestOneModelSelectionStrategy
 from tripmaster.core.components.operator.strategies.optimization import EpochwiseLRUpdateStrategy
 from tripmaster.core.components.operator.supervise import TMSuperviseLearner
 
-
-class TMMultiLearner(TMLearner):
+from tripmaster import P
+class TMMultiLearner(TMSuperviseLearner):
     """
     Multitask TMLearner
     """
@@ -69,7 +69,7 @@ class TMMultiLearner(TMLearner):
 
                 continue
 
-            self.optimizer[name], self.lr_scheduler[name] = B.OptimizerBehaviors.create_optimization_components(
+            self.optimizer[name], self.lr_scheduler[name] = P.OptimizerBehaviors.create_optimization_components(
                 parameters,
                 self.Optimizer[name], algorithm_params,
                 self.LRScheduler[name], lr_scheduler_params,
