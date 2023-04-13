@@ -172,10 +172,12 @@ class TMSupervisedEvaluatorMixin(TMEvaluatorMixin):
             truth_machine_datastream[channel] = truth_stream
             inference_machine_datastream[channel] = inferenced_stream
 
+        device = f"{D.device_prefix()}:{local_rank}"
+
         info = MachineEvaluationStreamInfo(objective_stream=channeled_loss_streams,
                                            truth_stream=truth_machine_datastream,
                                            inferenced_stream=inference_machine_datastream,
-                                           local_rank=local_rank, device=None, epoch=epoch, step=step)
+                                           local_rank=local_rank, device=device, epoch=epoch, step=step)
         evaluation_results = self.evaluate_signal.send(info)
         return evaluation_results
 
