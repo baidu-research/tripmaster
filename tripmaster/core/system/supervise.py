@@ -63,9 +63,8 @@ class TMSuperviseSystem(TMSystem):
             # We need the dummy_ref to make the system copied to child process in ddp
             self.operator.dummy_ref = self.evaluate_callback
 
-            self.operator.evaluate_signal.connect(self.evaluate_callback)
-
             if self.is_learning():
+                self.operator.evaluate_signal.connect(self.evaluate_callback)
                 self.operator.good_model_discovered_signal.connect(
                     self.better_model_discovered)
 

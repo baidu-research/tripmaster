@@ -131,7 +131,7 @@ class Learner(Operator):
 
 
 @dataclass
-class Inferencer(Operator):
+class Inferencer(Operator, dict):
     pass
 
 

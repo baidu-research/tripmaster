@@ -158,6 +158,9 @@ class TMDataStream(TMSerializable):
     def level(self, level):
         self.__level = level
 
+        for channel in self.channels:
+            self[channel].level = level
+
     @property
     def channels(self):
         return self.__channels.keys()

@@ -1,34 +1,18 @@
-import weakref
-from typing import Union
-from tqdm import tqdm
 import abc
-from tripmaster.core.components.evaluator import MachineEvaluationStreamInfo
-from tripmaster.core.components.machine.machine import TMMultiMachine
-from tripmaster.core.components.modeler.machine_memory import TMMachine2MemoryModeler, \
-    TMProtoMultiMachine2MemoryModeler
+
+from tripmaster import P, D
+from tripmaster import logging
+from tripmaster.core.components.modeler.machine_memory import TMMachine2MemoryModeler
 from tripmaster.core.components.modeler.memory_batch import TMMemory2BatchModeler
+from tripmaster.core.components.operator.strategies.distributed import TMDistributedStrategyFactory
 from tripmaster.core.components.operator.strategies.event_trigger import TMEpochwiseTrigger
 from tripmaster.core.components.operator.strategies.metric_logging import TMMetricLoggingStrategyFactory
 from tripmaster.core.components.operator.strategies.model_selection import BestOneModelSelectionStrategy
-from tripmaster.core.concepts.component import TMConfigurable, TMSerializableComponent
-from tripmaster.core.concepts.contract import TMContractChannel
-from tripmaster.core.concepts.data import TMDataStream, TMDataLevel, TMMultiDataStream
-
-from tripmaster.core.concepts.operator import TMOperatorInterface
-from tripmaster.core.components.operator.strategies.distributed import TMDistributedStrategyFactory
-
-from tripmaster.core.components.operator.strategies.metric_logging import TMMetricLoggingStrategyFactory
-from tripmaster.core.concepts.contract import TMContractChannel
 from tripmaster.core.components.operator.strategies.optimization import EpochwiseLRUpdateStrategy
-
-from tripmaster.core.concepts.data import TMDataStream, TMDataLevel
-
-from tripmaster import logging
+from tripmaster.core.concepts.component import TMConfigurable
+from tripmaster.core.concepts.data import TMDataStream
+from tripmaster.core.concepts.operator import TMOperatorInterface
 from tripmaster.core.concepts.scenario import TMScenario
-from tripmaster.utils.stream import isolate_iterators
-from tqdm import tqdm
-from tripmaster import P, T, M, D
-
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +61,7 @@ class TMOperator(TMOperatorInterface):
         self.select_distributed_strategy(runtime_options)
         self.build_operator_modeler(runtime_options)
         self.select_metric_logging_strategy(runtime_options)
+
     def build_operator_modeler(self, runtime_options):
 
         if self.machine.DataTraits and self.machine.DataTraits.SAMPLE_OOM_POSSIBLE:
@@ -326,7 +311,6 @@ class TMLearnerMixin(TMConfigurable):
             )
 
     def test(self, test_config):
-
         self.optimization_strategy.test(test_config)
 
     def eval_and_select_model(self, train_batchstreams: TMDataStream, local_rank, epoch, step):

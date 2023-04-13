@@ -62,6 +62,10 @@ class TMDefaultSystemRuntimeCallback(TMSystemRuntimeCallbackInterface, TMConfigu
             system.pm_modeler.serialize(system.hyper_params.pm_modeler.serialize.path)
             logger.info("pm_modeler serialized")
 
+        if to_save(system.hyper_params):
+            system.serialize(system.hyper_params.serialize.path)
+            logger.info("system serialized")
+
 
 
 class TMStandaloneApp(TMConfigurable):

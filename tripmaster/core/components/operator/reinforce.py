@@ -180,12 +180,11 @@ class TMReinforceEvaluatorMixin(TMEvaluatorMixin):
 
                 try:
                     observations, accumulated_rewards, batch_mask = self.host.play_once(batch_env, self.host.device(local_rank))
-                    ic(accumulated_rewards)
+
                     avg_reward = sum(accumulated_rewards) / batch_env.batch_size()
                     eval_env_nums += batch_env.batch_size()
 
                     observations.update(truth)
-                    ic(avg_reward)
                     yield {"objective": avg_reward, "sample_num": batch_env.batch_size()}, truth, observations
 
                     if self.hyper_params.eval_env_nums and eval_env_nums >= self.hyper_params.eval_env_nums:
@@ -200,8 +199,6 @@ class TMReinforceEvaluatorMixin(TMEvaluatorMixin):
                 except Exception as e:
                     logger.exception(e)
                     raise e
-
-        ic("eval_envs finished")
 
     def evaluate(self, batch_env_pool: TMEnvironmentPool, local_rank, epoch, step):
 

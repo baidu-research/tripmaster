@@ -250,8 +250,14 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
 
         for idx, sample in enumerate(data_channel):
 
-            for result in self.model_sample(sample, scenario=scenario, level=data_channel.level):
+            try:
+                results = list(self.model_sample(sample, scenario=scenario, level=data_channel.level))
+            except Exception as e:
+                logger.error(f"Error in model_sample: Uri: {sample['uri']}, Error: {e}")
+                logger.exception(e)
+                continue
 
+            for result in results:
                 uri_key = TMDataLevel.uri_key(data_channel.level)
                 result[uri_key] = idx
                 processed.append(result)
@@ -275,17 +281,19 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
 
         data_iter = iter(data_channel)
         first_element = next(data_iter)
-        uri_key = None
+        robust_uri_key = None
         for x in TMDataLevel.upper_level(data_channel.level):
             key = TMDataLevel.uri_key(x)
             if key in first_element:
-                uri_key = key
+                robust_uri_key = key
                 break
 
         data_iter = itertools.chain([first_element], data_iter)
 
         target_level = TMDataLevel.reconstruct(data_channel.level)
         uri_key = TMDataLevel.uri_key(target_level)
+
+        assert robust_uri_key == uri_key
 
         def key_func(x):
             return x[uri_key]

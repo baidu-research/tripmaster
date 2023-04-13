@@ -51,6 +51,74 @@ class HotpotSelectedModelInfo(SelectedModelInfo):
     cur_best: bool = False
 
 
+class LatestModelSelectionStrategy(TMModelSelectionStrategy):
+    """
+    LatestModelSelectionStrategy
+    """
+
+    Name = "latest"
+
+    def __init__(self, hyper_params):
+
+        super().__init__(hyper_params)
+
+        self.latest_model_path = None
+
+        self.prev_model_name = None
+
+#        signal(TMEvaluationSignals.ON_PROBLEM_STREAM_EVALUATED).connect(self)
+#        signal(TMEvaluationSignals.ON_TASK_STREAM_EVALUATED).connect(self)
+
+    def select_model(self, results, machine, learner):
+
+
+        if result.local_rank == 0:
+            import os
+            if self.prev_model_name:
+                os.remove(self.prev_model_name + ".model.pt")
+                #    os.remove(self.prev_model_name + ".trainer.pt")
+
+
+            logger.warning(f"latest model found, saving... ")
+
+            model_info = SelectedModelInfo(
+                prefix=self.hyper_params.prefix,
+                stage=self.hyper_params.stage,
+                metric=self.hyper_params.metric,
+                channel=self.hyper_params.channel,
+                perf=self.cur_best_perf,
+                epoch=result.epoch,
+                step=result.step,
+            )
+            if self.hyper_params.id_pattern:
+                model_info.id_patten = self.hyper_params.id_pattern
+
+            file_name = model_info.id_patten.format(prefix=model_info.prefix, stage=model_info.stage,
+                                                    channel=model_info.channel,
+                                         metric=model_info.metric, perf=model_info.perf,
+                                         epoch=model_info.epoch, step=model_info.step)
+
+            self.latest_model_path = file_name + ".model.pt"
+            machine.serialize(path=self.latest_model_path)
+            yield model_info
+#                file_name = f"{self.hyper_params.save_prefix}-epoch={result.epoch}-{metric}={self.cur_best_perf}"
+
+
+                #torch.save({
+                #    'state_dict': self.learner.machine.state_dict(),
+                #    TMMachine.HYPER_PARAMS_KEY: self.learner.machine.hyper_params
+                #}, file_name + ".model.pt")
+
+#                torch.save({
+
+#                    'optimization': trainer.optimization.state_dict(),
+#                    'lr_sheduler': self.lr_scheduler.state_dict(),
+#                    'best_perf': {metric: self.cur_best_perf}
+#                }, file_name + ".trainer.pt")
+
+                # self.prev_model_name = file_name
+
+
 class BestOneModelSelectionStrategy(TMModelSelectionStrategy):
     """
     TMModelSelectionStrategy
@@ -83,8 +151,11 @@ class BestOneModelSelectionStrategy(TMModelSelectionStrategy):
 
     def select_model(self, results, machine, learner):
 
-        result = results[self.hyper_params.stage]
+        if self.hyper_params.stage not in results:
+            raise Exception(f"the stage {self.hyper_params.stage} not in evaluation results {results.keys()}")
 
+
+        result = results[self.hyper_params.stage]
 
         perf = result.performance
 

@@ -38,33 +38,37 @@ class TMTensorElementTraits(TMElementTraits):
     @classmethod
     def collate(self, list_of_samples):
 
+        ndim = max([x.ndim for x in list_of_samples])
         first_elem = list_of_samples[0]
         # if isinstance(first_elem, np.ndarray):
         #     list_of_samples = [T.to_tensor(b) for b in list_of_samples]
         
         shapes = [list(x.shape if isinstance(x, np.ndarray) else T.shape(x)) for x in list_of_samples]
-
-        max_shape = tuple([max(x[i] for x in shapes) for i in range(first_elem.ndim)])
-    
+        shapes = [x + [0] * (ndim - len(x)) for x in shapes]
+        max_shape = tuple([max(x[i] for x in shapes) for i in range(ndim)])
 
         for idx, b in enumerate(list_of_samples):
             this_shape = b.shape if isinstance(b, np.ndarray) else T.shape(b)
             if tuple(this_shape) == max_shape:
-                continue 
-                
-            if isinstance(first_elem, np.ndarray):
-                pad = [(0, max_shape[i] - this_shape[i]) for i in range(b.ndim)]
+                continue
+
+            if len(this_shape) < ndim:
+                this_shape = list(this_shape) + [0] * (ndim - len(this_shape))
+                b = b.reshape(this_shape)
+
+            if isinstance(b, np.ndarray):
+                pad = [(0, max_shape[i] - this_shape[i]) for i in range(ndim)]
                 b = np.pad(b, pad)
             else:  # is tensor 
 
-                dim_order = range(first_elem.ndim - 1, -1, -1)
+                dim_order = range(ndim - 1, -1, -1)
 
                 pad = [[0, max_shape[i] - this_shape[i]] for i in dim_order]
                 pad = sum(pad, [])
                 b = T.pad(b, pad, 0)
 
             list_of_samples[idx] = b
-        
+
         if isinstance(first_elem, np.ndarray):
             result = T.to_tensor(np.stack(list_of_samples, 0))
         else:
@@ -146,11 +150,14 @@ class TMDictElementBatchTraits(TMElementBatchTraits):
         unbatched_data = collections.defaultdict(list)
 
         for key in batched_data.keys():
-            try:
-                traits = TMElementTraitsFactory.get().get_element_batch_traits(batched_data[key])
-                unbatched_data[key] = traits.decollate(batched_data[key])
-            except UnsupportedTraitsError as e:
-                unbatched_data[key] = batched_data[key]
+            if batched_data[key] is None:
+                unbatched_data[key] = [None] * batch_size
+            else:
+                try:
+                    traits = TMElementTraitsFactory.get().get_element_batch_traits(batched_data[key])
+                    unbatched_data[key] = traits.decollate(batched_data[key])
+                except UnsupportedTraitsError as e:
+                    unbatched_data[key] = batched_data[key]
 
         result_list = list()
         key_list = list(batched_data.keys())

@@ -89,33 +89,43 @@ class TMMachine(M.Module, TMSerializableComponent, TMMachineInterface,
 
         contract_graph.add_subsystem("MachineSubSystem", components)
 
-    def forward_with_validation(self, data, scenario):
+    def validate_forward_input(self, data, scenario):
 
-        if self.validate:
-            for key in (TMContractChannel.Source, TMContractChannel.Target):
-                assert self.requires(forward=True, channel=key).is_valid(data)
+        if not self.validate:
+            return
 
-        output = self.forward(data, scenario=scenario)
+        for key in (TMContractChannel.Source, TMContractChannel.Target):
+            assert self.requires(forward=True, channel=key).is_valid(data)
 
-        if self.validate:
-            if scenario == TMScenario.Learning:
-                assert self.provides(forward=False, channel=TMContractChannel.Learn).is_valid(output)
-                assert self.loss.requires(forward=True,
-                                                  channel=TMContractChannel.Truth).is_valid(data)
-                assert self.loss.requires(forward=True,
-                                                  channel=TMContractChannel.Learn).is_valid(output)
-            elif scenario == TMScenario.Evaluation:
-                assert self.provides(forward=False, channel=TMContractChannel.Inference).is_valid(output)
-                assert self.evaluator.requires(forward=True,
-                                                       channel=TMContractChannel.Truth).is_valid(data)
-                assert self.evaluator.requires(forward=True,
-                                                       channel=TMContractChannel.Inference).is_valid(output)
-            elif scenario == TMScenario.Inference:
-                assert self.provides(forward=False, channel=TMContractChannel.Inference).is_valid(output)
-            else:
-                raise NotImplementedError()
+        if scenario == TMScenario.Learning:
+            assert self.loss.requires(forward=True,
+                                              channel=TMContractChannel.Truth).is_valid(data)
+        elif scenario == TMScenario.Evaluation:
+            assert self.evaluator.requires(forward=True,
+                                                   channel=TMContractChannel.Truth).is_valid(data)
+        elif scenario == TMScenario.Inference:
+            pass
+        else:
+            raise NotImplementedError()
 
-        return output 
+
+    def validate_forward_output(self, output, scenario):
+
+        if not self.validate:
+            return
+
+        if scenario == TMScenario.Learning:
+            assert self.provides(forward=False, channel=TMContractChannel.Learn).is_valid(output)
+            assert self.loss.requires(forward=True,
+                                      channel=TMContractChannel.Learn).is_valid(output)
+        elif scenario == TMScenario.Evaluation:
+            assert self.provides(forward=False, channel=TMContractChannel.Inference).is_valid(output)
+            assert self.evaluator.requires(forward=True,
+                                           channel=TMContractChannel.Inference).is_valid(output)
+        elif scenario == TMScenario.Inference:
+            assert self.provides(forward=False, channel=TMContractChannel.Inference).is_valid(output)
+        else:
+            raise NotImplementedError()
 
     @abc.abstractmethod
     def forward(self, input, scenario=None):

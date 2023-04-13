@@ -29,7 +29,7 @@ from tripmaster.utils.profile_support import profile
 
 from collections import OrderedDict
 from tripmaster.core.app.config import TMConfig
-import addict
+
 import os
 logger = logging.getLogger(__name__)
 
@@ -547,12 +547,13 @@ class TMSystem(TMSerializableComponent):
             last_inference_info = task_inference_info
             last_strategy = self.task_evaluating_strategy
 
-        for channel in last_inference_info.truth_stream.eval_channels:
-            truth_channel = last_inference_info.truth_stream[channel]
-            inference_channel = last_inference_info.inferenced_stream[channel]
-            for truth, inference in zip(truth_channel, inference_channel):
-                # consume the stream, and actually run the pipeline
-                pass
+        if last_inference_info:
+            for channel in last_inference_info.truth_stream.eval_channels:
+                truth_channel = last_inference_info.truth_stream[channel]
+                inference_channel = last_inference_info.inferenced_stream[channel]
+                for truth, inference in zip(truth_channel, inference_channel):
+                    # consume the stream, and actually run the pipeline
+                    pass
 
         if self.machine_evaluating_strategy:
             eval_results["machine"] = self.machine_evaluating_strategy.on_evaluation_end(evalation_termination_info)
@@ -625,14 +626,13 @@ class TMSystem(TMSerializableComponent):
         if self.pm_modeler is not None:
             input_data_stream = self.pm_modeler.reconstruct_datastream(
                 input_data_stream, scenario=scenario, with_truth=not inference)
-        elif self.tp_modeler is not None:
+
+        if self.tp_modeler is not None:
             input_data_stream.level = TMDataLevel.Problem
 
             logger.info(f"problem data recovered: ")
-            for channel in input_data_stream.channels:
-                logger.info(f"\t{channel}: {len(input_data_stream[channel])}")
-
-        if self.tp_modeler is not None:
+            # for channel in input_data_stream.channels:
+            #     logger.info(f"\t{channel}: {len(input_data_stream[channel])}")
 
             input_data_stream = self.tp_modeler.reconstruct_datastream(
                 input_data_stream, scenario=scenario, with_truth=not inference)

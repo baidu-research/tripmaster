@@ -53,7 +53,8 @@ class PaddleNoDistributedStrategy(TMDistributedStrategy):
         """
         train_impl
         """
-        return func(0, self.operator, train_data_streams, runtime_options)
+        result = func(0, self.operator, train_data_streams, runtime_options)
+        return result
 
     def init(self, local_rank):
         """
@@ -559,6 +560,7 @@ class PaddleBasicDeviceOperations(TMBasicDeviceOperations):
 
     @classmethod
     def set_device(cls, device):
+
         paddle.set_device(device)
 
     @classmethod
