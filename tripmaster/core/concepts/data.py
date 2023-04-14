@@ -228,7 +228,7 @@ class TMDataStream(TMSerializable):
         for k, v in self.__channels.items():
             v.degenerate()
 
-        return {"channels": {k: v._data for k, v in self.__channels.items() if not k.endswith("#sampled")},
+        return {"channels": {k: v._data for k, v in self.__channels.items()},
                 "level": self.__level}
 
     def load_states(self, states):
