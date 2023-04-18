@@ -166,18 +166,26 @@ class BestOneModelSelectionStrategy(TMModelSelectionStrategy):
         perf = perf[self.hyper_params.channel]
 
         metric = self.hyper_params.metric
-        if self.hyper_params.metric not in perf:
-            raise Exception(f"the metric {metric} not in evaluation metrics {perf.keys()}")
+        if isinstance(metric, str):
+            metric = (metric, )
+        assert isinstance(metric, (tuple, list))
+
+        assert all(m in perf for m in self.hyper_params.metric), \
+            f"the metric {metric} not in evaluation metrics {perf.keys()}"
+
+        if isinstance(self.cur_best_perf, float):
+            self.cur_best_perf = tuple([self.cur_best_perf] * len(metric))
 
         if result.local_rank == 0:
             import os
-            if self.better_func(perf[metric], self.cur_best_perf):
+            cur_perf = tuple(perf[m] for m in metric)
+            if self.better_func(cur_perf, self.cur_best_perf):
 
                 if self.prev_model_name:
                     os.remove(self.prev_model_name + ".model.pt")
                 #    os.remove(self.prev_model_name + ".trainer.pt")
 
-                self.cur_best_perf = perf[metric]
+                self.cur_best_perf = cur_perf
 
                 logger.warning(f"better model found with performance {metric} = {self.cur_best_perf}, saving... ")
 
