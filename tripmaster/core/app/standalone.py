@@ -26,7 +26,7 @@ class TMDefaultSystemRuntimeCallback(TMSystemRuntimeCallbackInterface, TMConfigu
 
         if task_serialize_config and task_serialize_config.save:
             logger.info(f"Saving task data with serialize config {self.hyper_params.io.input.task.serialize}")
-            task_data.serialize(self.hyper_params.io.input.task.serialize.path)
+            task_data.serialize(self.hyper_params.io.input.task.serialize.save)
 
     def on_problem_data_built(self, problem_data):
         if not self.hyper_params.io.input or not self.hyper_params.io.input.problem:
@@ -34,7 +34,7 @@ class TMDefaultSystemRuntimeCallback(TMSystemRuntimeCallbackInterface, TMConfigu
         problem_serialize_config = self.hyper_params.io.input.problem.serialize
         if problem_serialize_config and problem_serialize_config.save:
             logger.info(f"Saving problem data with serialize config {self.hyper_params.io.input.problem.serialize}")
-            problem_data.serialize(self.hyper_params.io.input.problem.serialize.path)
+            problem_data.serialize(self.hyper_params.io.input.problem.serialize.save)
 
     def on_machine_data_built(self, machine_data):
         if not self.hyper_params.io.input or not self.hyper_params.io.input.machine:
@@ -42,28 +42,28 @@ class TMDefaultSystemRuntimeCallback(TMSystemRuntimeCallbackInterface, TMConfigu
         machine_serialize_config = self.hyper_params.io.input.machine.serialize
         if machine_serialize_config and machine_serialize_config.save:
             logger.info(f"Saving machine data with serialize config {self.hyper_params.io.input.machine.serialize}")
-            machine_data.serialize(self.hyper_params.io.input.machine.serialize.path)
+            machine_data.serialize(self.hyper_params.io.input.machine.serialize.save)
 
     def on_data_phase_finished(self, system):
 
         if to_save(system.hyper_params.task):
-            system.task.serialize(system.hyper_params.task.serialize.path)
+            system.task.serialize(system.hyper_params.task.serialize.save)
             logger.info("task serialized")
 
         if to_save(system.hyper_params.tp_modeler):
-            system.tp_modeler.serialize(system.hyper_params.tp_modeler.serialize.path)
+            system.tp_modeler.serialize(system.hyper_params.tp_modeler.serialize.save)
             logger.info("tp_modeler serialized")
 
         if to_save(system.hyper_params.problem):
-            system.problem.serialize(system.hyper_params.problem.serialize.path)
+            system.problem.serialize(system.hyper_params.problem.serialize.save)
             logger.info("problem serialized")
 
         if to_save(system.hyper_params.pm_modeler):
-            system.pm_modeler.serialize(system.hyper_params.pm_modeler.serialize.path)
+            system.pm_modeler.serialize(system.hyper_params.pm_modeler.serialize.save)
             logger.info("pm_modeler serialized")
 
         if to_save(system.hyper_params):
-            system.serialize(system.hyper_params.serialize.path)
+            system.serialize(system.hyper_params.serialize.save)
             logger.info("system serialized")
 
 

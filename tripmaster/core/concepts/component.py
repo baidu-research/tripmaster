@@ -348,7 +348,7 @@ class TMSerializableComponent(TMComponent, TMSerializable):
 
         if hyper_param.serialize and hyper_param.serialize.load:
 
-            serialized_path = os.path.expanduser(hyper_param.serialize.path)
+            serialized_path = os.path.expanduser(hyper_param.serialize.load)
             logger.info(f"trying to load serialized component {serialized_path}")
             if not os.path.exists(serialized_path):
 
@@ -361,7 +361,7 @@ class TMSerializableComponent(TMComponent, TMSerializable):
                     message = f"Failed to obtain component from repo using uri {repo_uri}"
                     logger.error(message)
                     raise Exception(message)
-                hyper_param.serialize.path = serialized_path
+                hyper_param.serialize.load = serialized_path
             component = cls.deserialize(serialized_path, hyper_param)
             logger.info(f"component loaded from {serialized_path}")
         else:

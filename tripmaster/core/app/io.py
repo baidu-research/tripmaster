@@ -24,19 +24,19 @@ class TMOfflineInputStream(TMApplicationIOStream):
     def data_stream(self):
 
         if self.hyper_params.machine.serialize and self.hyper_params.machine.serialize.load:
-            machine_data = TMDataStream.deserialize(self.hyper_params.machine.serialize.path,
+            machine_data = TMDataStream.deserialize(self.hyper_params.machine.serialize.load,
                                                    self.hyper_params.machine)
             logger.info(f"serialized machine data loaded from {self.hyper_params.machine.serialize} ")
             return machine_data
 
         if self.hyper_params.problem.serialize and self.hyper_params.problem.serialize.load:
-            problem_data = TMDataStream.deserialize(self.hyper_params.problem.serialize.path,
+            problem_data = TMDataStream.deserialize(self.hyper_params.problem.serialize.load,
                                                    self.hyper_params.problem)
             logger.info(f"serialized problem data loaded from {self.hyper_params.problem.serialize} ")
             return problem_data
 
         if self.hyper_params.task.serialize and self.hyper_params.task.serialize.load:
-            task_data = TMDataStream.deserialize(self.hyper_params.task.serialize.path,
+            task_data = TMDataStream.deserialize(self.hyper_params.task.serialize.load,
                                                 self.hyper_params.task)
             logger.info(f"serialized task data loaded from {self.hyper_params.task.serialize}")
             return task_data
@@ -62,5 +62,5 @@ class TMOfflineOutputStream(TMConfigurable):
 
     def write(self, datastream):
         if self.hyper_params.serialize and self.hyper_params.serialize.save:
-            datastream.serialize(self.hyper_params.serialize.path)
+            datastream.serialize(self.hyper_params.serialize.save)
 

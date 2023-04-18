@@ -651,7 +651,7 @@ class TMSystem(TMSerializableComponent):
         for info in info_iter:
             if isinstance(info, SelectedModelInfo):
                 if to_save(self.hyper_params):
-                    self.serialize(self.hyper_params.serialize.path)
+                    self.serialize(self.hyper_params.serialize.save)
             elif isinstance(info, tuple):
                 metric, machine_info = info
                 if to_save(self.hyper_params):

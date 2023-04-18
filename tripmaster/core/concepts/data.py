@@ -2,6 +2,7 @@
 base class for data
 """
 import abc
+import copy
 import enum
 from collections import defaultdict
 from typing import Dict, Type
@@ -149,6 +150,13 @@ class TMDataStream(TMSerializable):
 
         if states is not None:
             self.load_states(states)
+            logger.info("add sampled training eval channel ")
+
+            if self.hyper_params.train_sample_ratio_for_eval or self.hyper_params.train_sample_ratio_for_eval > 0:
+                ratio = self.hyper_params.train_sample_ratio_for_eval
+                self.add_sampled_training_eval_channels(ratio)
+
+            logger.info("sampled training eval channel added")
 
     @property
     def level(self):
@@ -169,10 +177,12 @@ class TMDataStream(TMSerializable):
     def learn_channels(self):
         return self.hyper_params.channels.learn if self.hyper_params.channels.learn else []
 
-    def add_sampled_training_eval_channels(self):
+    def add_sampled_training_eval_channels(self, ratio=None):
 
-        if not self.hyper_params.train_sample_ratio_for_eval or self.hyper_params.train_sample_ratio_for_eval <= 0:
-            return 
+        if ratio is None:
+            ratio = self.hyper_params.train_sample_ratio_for_eval
+            if not ratio or (isinstance(ratio, (int, float)) and ratio < 0):
+                return
 
         import random, copy 
         sampled_channels = []
@@ -180,7 +190,7 @@ class TMDataStream(TMSerializable):
             assert channel in self.__channels
 
             sampled = [copy.deepcopy(sample) for sample in self.__channels[channel]
-                            if random.random() < self.hyper_params.train_sample_ratio_for_eval]
+                            if random.random() < ratio]
             if len(sampled) <= 0:
                 continue
             sampled_channels.append(f"{channel}#sampled")
@@ -224,17 +234,28 @@ class TMDataStream(TMSerializable):
         for k, v in self.__channels.items():
             v.sample_num = test_config.sample_num
 
+        self.add_sampled_training_eval_channels(ratio=1)
+
     def states(self):
         for k, v in self.__channels.items():
             v.degenerate()
 
-        return {"channels": {k: v._data for k, v in self.__channels.items()},
+        return {"channels": {k: v._data for k, v in self.__channels.items() if not k.endswith("#sampled")},
                 "level": self.__level}
+
+    def secure_hparams(self):
+
+        hyper_params = copy.deepcopy(self.hyper_params)
+        for channel in hyper_params.channels:
+            hyper_params.channels[channel] = [k for k in hyper_params.channels[channel]
+                                                   if not k.endswith("#sampled")]
+        return hyper_params
+
 
     def load_states(self, states):
         self.__level = states["level"]
         self.__channels = {k: TMDataChannel(data=v, level=self.__level)
-                           for k, v in states["channels"].items()}
+                           for k, v in states["channels"].items() if not k.endswith("#sampled")}
 
 
 
