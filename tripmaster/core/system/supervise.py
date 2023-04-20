@@ -73,7 +73,9 @@ class TMSuperviseSystem(TMSystem):
             if not self.is_learning():  # result is the inferenced machine stream
 
                 result = self.operator.unbatchify(result)
+
                 result = self.operator.unfit_memory(result)
+
                 result = self.recover_input_datastream(result)
 
             for callback in self.callbacks:

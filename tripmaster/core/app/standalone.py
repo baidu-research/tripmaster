@@ -160,4 +160,8 @@ class TMStandaloneApp(TMConfigurable):
 
         if not self.system.is_learning() and self.output_data_stream is not None:
             self.output_data_stream.write(result)
+
+        self.system.final()
+
+
             

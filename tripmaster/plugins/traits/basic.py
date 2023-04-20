@@ -163,7 +163,8 @@ class TMDictElementBatchTraits(TMElementBatchTraits):
         key_list = list(batched_data.keys())
 
         for sample in zip(*(unbatched_data[key] for key in key_list)):
-            result_list.append(dict(zip(key_list, sample)))
+            new_sample = dict(zip(key_list, sample))
+            result_list.append(new_sample)
 
         return result_list
 

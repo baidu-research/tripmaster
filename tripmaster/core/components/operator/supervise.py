@@ -500,9 +500,9 @@ class TMSuperviseInferencer(TMSuperviseOperator):
 
         for channel in predict_batchstreams.inference_channels:
 
-            inference_machine_datastream[channel] = self.inference_channel(local_rank, predict_batchstreams[
-                channel])  # why cannot it step into the predict_channel function.
-
+            inference_machine_datastream[channel] = self.inference_channel(local_rank,
+                                                                           predict_batchstreams[channel])
+            # why cannot it step into the predict_channel function.
 
         return inference_machine_datastream
 

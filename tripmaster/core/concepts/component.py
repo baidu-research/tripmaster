@@ -214,6 +214,10 @@ class TMComponent(TMConfigurable, TMContracted):
 
         return component_name
 
+    def final(self):
+
+        pass
+
 
 
 def merge_hyperparams(user_hyperparams, serialized_params):

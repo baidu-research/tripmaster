@@ -100,7 +100,6 @@ class TMMemory2BatchModeler(TMModeler):
 
         for batch in channel:
             for sample in self.batch_traits.unbatch(batch):
-
                 yield sample
 
 TMMemory2BatchModeler.init_class()

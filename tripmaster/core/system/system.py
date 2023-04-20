@@ -354,6 +354,25 @@ class TMSystem(TMSerializableComponent):
 
         super().load_states(states)
 
+    def final(self):
+
+        if self.task:
+            self.task.final()
+
+        if self.tp_modeler:
+            self.tp_modeler.final()
+
+        if self.problem:
+            self.problem.final()
+
+        if self.pm_modeler:
+            self.pm_modeler.final()
+
+        if self.machine:
+            self.machine.final()
+
+        if self.operator:
+            self.operator.final()
     # def update_machine_operator_hyperparams(self, datastream):
     #     """
     #     update machines hyperparams according to system and data

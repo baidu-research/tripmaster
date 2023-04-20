@@ -13,8 +13,8 @@ class Serializable:
     """
     ProblemModeler
     """
-    save: Optional[str] = False
-    load: Optional[str] = False
+    save: Optional[str] = None
+    load: Optional[str] = None
     multi_path: Optional[Dict] = None
 
 
