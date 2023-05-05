@@ -37,10 +37,10 @@ class TMSuperviseOperator(TMOperator):
         return memory_samplestream
 
     def unfit_memory(self, memory_samplestream: Union[TMDataStream, TMMultiDataStream],
-                                    ):
+                     scenario: TMScenario, with_truth=False):
 
         machine_samplestream = self.memory_modeler.reconstruct_datastream(memory_samplestream,
-                                                                          scenario=self.scenario)
+                                                                          scenario=scenario)
 
         return machine_samplestream
 
@@ -59,7 +59,7 @@ class TMSuperviseOperator(TMOperator):
 
         return machine_batchstream
 
-    def unbatchify(self, machine_batchstream: TMDataStream):
+    def unbatchify(self, machine_batchstream: TMDataStream, scenario:TMScenario, with_truth=False):
         """
 
         Args:
@@ -69,7 +69,8 @@ class TMSuperviseOperator(TMOperator):
 
         """
         machine_samplestream = self.batch_modeler.reconstruct_datastream(machine_batchstream,
-                                                                         scenario=self.scenario)
+                                                                         scenario=scenario,
+                                                                         with_truth=with_truth)
 
         return machine_samplestream
 
@@ -427,7 +428,7 @@ def remove_tensor(data):
                 remove_tensor(data[key])
 
 
-class TMSuperviseInferencer(TMSuperviseOperator):
+class TMSuperviseInferencer(TMSuperviseOperator, TMSupervisedEvaluatorMixin):
     """
     TMLearner
     """
@@ -503,6 +504,13 @@ class TMSuperviseInferencer(TMSuperviseOperator):
             inference_machine_datastream[channel] = self.inference_channel(local_rank,
                                                                            predict_batchstreams[channel])
             # why cannot it step into the predict_channel function.
+
+        signal_returns = self.evaluate(predict_batchstreams, local_rank, -1, -1)
+        assert len(signal_returns) == 1
+        evaluation_results = signal_returns[0][1]
+
+        self.metric_logging_strategy.log(evaluation_results)
+
 
         return inference_machine_datastream
 

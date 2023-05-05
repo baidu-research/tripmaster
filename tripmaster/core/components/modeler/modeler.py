@@ -324,6 +324,9 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
             channel_scenario_map.update((x, TMScenario.Evaluation) for x in datastream.eval_channels)
         elif scenario == TMScenario.Inference:
             channel_scenario_map.update((x, TMScenario.Inference) for x in datastream.inference_channels)
+            # if a channel occurs both in Evaluation and Inference, make sure it's scenario is set to Evaluation
+            channel_scenario_map.update((x, TMScenario.Evaluation) for x in datastream.eval_channels)
+
 
         else:
             raise Exception(f"Unknown scenario {scenario}")
@@ -341,7 +344,7 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
 
             logger.info(f"Building {target_stream.level} dataset for channel {channel} in scenario {channel_scenario}")
 
-            target_data_channel = self.model_datachannel(data_channel, scenario=scenario)
+            target_data_channel = self.model_datachannel(data_channel, scenario=channel_scenario)
 
             target_stream[channel] = target_data_channel
 
@@ -370,17 +373,20 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
         target_stream.eval_channels = datastream.eval_channels
         target_stream.inference_channels = datastream.inference_channels
 
+        channel_scenario_map = dict()
         if scenario in {TMScenario.Learning, TMScenario.Evaluation}:
-            target_channels = datastream.eval_channels
+            channel_scenario_map.update((x, TMScenario.Evaluation) for x in datastream.eval_channels)
         elif scenario == TMScenario.Inference:
-            target_channels = datastream.inference_channels
+            channel_scenario_map.update((x, TMScenario.Inference) for x in datastream.inference_channels)
+            channel_scenario_map.update((x, TMScenario.Evaluation) for x in datastream.eval_channels)
         else:
             raise Exception(f"Unknown scenario {scenario}")
 
-        for channel in target_channels:
+        for channel, channel_scenario in channel_scenario_map.items():
 
             target_datachannel = self.reconstruct_datachannel(datastream[channel],
-                                                              scenario=scenario, with_truth=with_truth)
+                                                              scenario=channel_scenario,
+                                                              with_truth=with_truth)
             target_stream[channel] = target_datachannel
 
         return target_stream
