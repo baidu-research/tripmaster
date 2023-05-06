@@ -209,7 +209,7 @@ class Job:
     testing: bool = False
     test: Optional[Test] = None
 
-    data_mode: bool = False
+    mode: Optional[str] = None  # "data" for data mode, "eval" for eval mode
 
     # operation:
     #   from_scratch: reinitialize the machine and operator;

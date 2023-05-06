@@ -344,7 +344,7 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
 
             logger.info(f"Building {target_stream.level} dataset for channel {channel} in scenario {channel_scenario}")
 
-            target_data_channel = self.model_datachannel(data_channel, scenario=channel_scenario)
+            target_data_channel = self.model_datachannel(data_channel, scenario=scenario)
 
             target_stream[channel] = target_data_channel
 
@@ -385,7 +385,7 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
         for channel, channel_scenario in channel_scenario_map.items():
 
             target_datachannel = self.reconstruct_datachannel(datastream[channel],
-                                                              scenario=channel_scenario,
+                                                              scenario=scenario,
                                                               with_truth=with_truth)
             target_stream[channel] = target_datachannel
 

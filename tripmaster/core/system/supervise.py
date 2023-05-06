@@ -37,7 +37,7 @@ class TMSuperviseSystem(TMSystem):
         for callback in self.callbacks:
             callback.on_data_phase_finished(self)
 
-        if runtime_options.data_mode:
+        if runtime_options.mode == "data":
             self.post_system_creation()
             result = None
         else:

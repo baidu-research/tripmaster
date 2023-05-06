@@ -19,7 +19,7 @@ with open('README.md') as readme_file:
 
 setup_args = dict(
     name='tripmaster',
-    version='1.0.10',
+    version='1.0.11',
     description='A High Level Framework for Deep Learning App and Pipelines for Paddle.',
     url='https://github.com/baidu-research/tripmaster',
     long_description_content_type="text/markdown",
