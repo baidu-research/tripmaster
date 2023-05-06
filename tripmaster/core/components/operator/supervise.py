@@ -151,8 +151,6 @@ class TMSupervisedEvaluatorMixin(TMEvaluatorMixin):
         # if local_rank != 0:
         #     return
 
-        ic(batchstreams.eval_channels)
-
         if not batchstreams.eval_channels:
             return
 
