@@ -55,7 +55,8 @@ class TMSuperviseOperator(TMOperator):
 
         """
         machine_batchstream = self.batch_modeler.model_datastream(machine_stream,
-                                                                  scenario=self.scenario)
+                                                                  scenario=self.scenario,
+                                                                  )
 
         return machine_batchstream
 
@@ -86,7 +87,7 @@ class TMSupervisedEvaluatorMixin(TMEvaluatorMixin):
 
 
 
-    def evaluate_channel(self, data_loader, channel, local_rank, epoch):
+    def evaluate_channel(self, data_loader, channel, scenario, local_rank, epoch):
         """evaluate(
 
         Args:
@@ -107,9 +108,9 @@ class TMSupervisedEvaluatorMixin(TMEvaluatorMixin):
                 try:
                     truth = self.reallocate_data(truth, local_rank)
 
-                    self.machine.validate_forward_input(truth, scenario=TMScenario.Evaluation)
-                    inferenced = self.machine.forward(truth, scenario=TMScenario.Evaluation)
-                    self.machine.validate_forward_output(inferenced, scenario=TMScenario.Evaluation)
+                    self.machine.validate_forward_input(truth, scenario=scenario, for_eval=True)
+                    inferenced = self.machine.forward(truth, scenario=scenario, for_eval=True)
+                    self.machine.validate_forward_output(inferenced, scenario=scenario, for_eval=True)
 
                     # truth.update(inferenced)  # sometimes the truth is constructed by machine
                     # for key in truth:
@@ -119,8 +120,11 @@ class TMSupervisedEvaluatorMixin(TMEvaluatorMixin):
                     #         inferenced[key] = truth[key]
                     deep_merge_dict(inferenced, truth)
 
-                    loss = self.machine.loss(inferenced, truth).detach()
                     batch_size = batch_traits.batch_size(truth)
+                    if scenario == TMScenario.Learning:
+                        loss = self.machine.loss(inferenced, truth).detach()
+                    else:
+                        loss = float("nan")
 
                     yield {"objective": loss, "sample_num": batch_size}, truth, inferenced
 
@@ -146,7 +150,7 @@ class TMSupervisedEvaluatorMixin(TMEvaluatorMixin):
         #                                                    loss=avg_loss, epoch=epoch)
         # signal(TMEvaluationSignals.ON_MACHINE_LOSS_COMPUTED).send(loss_info)
 
-    def evaluate(self, batchstreams: TMDataStream, local_rank, epoch, step):
+    def evaluate(self, batchstreams: TMDataStream, scenario: TMScenario, local_rank, epoch, step):
 
         # if local_rank != 0:
         #     return
@@ -166,7 +170,7 @@ class TMSupervisedEvaluatorMixin(TMEvaluatorMixin):
 
         for channel in batchstreams.eval_channels:
             loss_stream, truth_stream, inferenced_stream = isolate_iterators(
-                self.evaluate_channel(batchstreams[channel], channel, local_rank, epoch),
+                self.evaluate_channel(batchstreams[channel], channel, scenario, local_rank, epoch),
                 3
             )
             channeled_loss_streams[channel] = loss_stream
@@ -179,6 +183,8 @@ class TMSupervisedEvaluatorMixin(TMEvaluatorMixin):
                                            truth_stream=truth_machine_datastream,
                                            inferenced_stream=inference_machine_datastream,
                                            local_rank=local_rank, device=device, epoch=epoch, step=step)
+
+
         evaluation_results = self.evaluate_signal.send(info)
 
         return evaluation_results
@@ -330,7 +336,7 @@ class TMSupervisedLearnerMixin(TMLearnerMixin):
 
         if runtime_options.mode == "eval":
             P.OptimizerBehaviors.set_inference_mode(self.machine)
-            signal_returns = self.evaluate(train_batchstreams, local_rank, -1, -1)
+            signal_returns = self.evaluate(train_batchstreams, TMScenario.Learning, local_rank, -1, -1)
             assert len(signal_returns) == 1
             evaluation_results = signal_returns[0][1]
 
@@ -448,18 +454,18 @@ class TMSuperviseInferencer(TMSuperviseOperator, TMSupervisedEvaluatorMixin):
     def __init__(self, hyper_params, machine, states=None):
         super().__init__(hyper_params, machine, scenario=TMScenario.Inference, states=states)
 
-    def inference_batch(self, batch, scenario: TMScenario, local_rank):
+    def inference_batch(self, batch, for_eval, local_rank):
 
         batch_traits = self.machine.BatchTraits
 
         batch = self.reallocate_data(batch, local_rank)
         batch_size = batch_traits.batch_size(batch)
 
-        inferenced = self.machine.forward(batch, scenario=TMScenario.Inference)
+        inferenced = self.machine.forward(batch, scenario=TMScenario.Inference, for_eval=for_eval)
         deep_merge_dict(inferenced, batch)
         yield inferenced
 
-    def inference_channel(self, data_loader, channel: str, scenario: TMScenario,
+    def inference_channel(self, data_loader, channel: str, for_eval,
                           local_rank: int):
         """
 
@@ -476,7 +482,7 @@ class TMSuperviseInferencer(TMSuperviseOperator, TMSupervisedEvaluatorMixin):
             for i, batch in tqdm(enumerate(data_loader), desc=f"Inferencing Channel {channel}: "):
                 try:
 
-                    yield from self.inference_batch(batch, scenario, local_rank)
+                    yield from self.inference_batch(batch, for_eval, local_rank)
 
                 except Exception as e:
 
@@ -508,9 +514,28 @@ class TMSuperviseInferencer(TMSuperviseOperator, TMSupervisedEvaluatorMixin):
 
         self.distributed_strategy.init(local_rank)
 
+
+            # why cannot it step into the predict_channel function.
+        #
+        # for channel in predict_batchstreams.eval_channels:
+        #
+        #     inference_machine_datastream[channel] = self.inference_channel(predict_batchstreams[channel],
+        #                                                                    channel=channel,
+        #                                                                    for_eval=True,
+        #                                                                    local_rank=local_rank)
+            # why cannot it step into the predict_channel function.
+
+
+        if predict_batchstreams.eval_channels:
+            signal_returns = self.evaluate(predict_batchstreams, TMScenario.Inference, local_rank, -1, -1)
+            assert len(signal_returns) == 1
+            evaluation_results = signal_returns[0][1]
+
+            self.metric_logging_strategy.log(evaluation_results)
+
+
         inference_machine_datastream = TMDataStream()
         inference_machine_datastream.level = TMDataLevel.Batch
-        inference_machine_datastream.eval_channels = predict_batchstreams.eval_channels
         inference_machine_datastream.inference_channels = predict_batchstreams.inference_channels
 
 
@@ -518,24 +543,8 @@ class TMSuperviseInferencer(TMSuperviseOperator, TMSupervisedEvaluatorMixin):
 
             inference_machine_datastream[channel] = self.inference_channel(predict_batchstreams[channel],
                                                                            channel=channel,
-                                                                           scenario=TMScenario.Inference,
+                                                                           for_eval=False,
                                                                            local_rank=local_rank)
-            # why cannot it step into the predict_channel function.
-
-        for channel in predict_batchstreams.eval_channels:
-
-            inference_machine_datastream[channel] = self.inference_channel(predict_batchstreams[channel],
-                                                                           scenario=TMScenario.Evaluation,
-                                                                           local_rank=local_rank)
-            # why cannot it step into the predict_channel function.
-
-
-        signal_returns = self.evaluate(inference_machine_datastream, local_rank, -1, -1)
-        assert len(signal_returns) == 1
-        evaluation_results = signal_returns[0][1]
-
-        self.metric_logging_strategy.log(evaluation_results)
-
 
         return inference_machine_datastream
 

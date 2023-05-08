@@ -5,6 +5,7 @@ from more_itertools import ichunked
 from tripmaster.core.components.machine.data_traits import TMElementTraits, TMElementBatchTraits, \
     TMElementTraitsFactory, UnsupportedTraitsError
 import numpy as np
+import numbers
 
 from tripmaster.core.components.backend import TMBackendFactory
 
@@ -13,7 +14,7 @@ T = B.BasicTensorOperations
 
 class TMIntElementTraits(TMElementTraits):
 
-    ElementType = (bool, int, np.integer)
+    ElementType = (bool, numbers.Integral)
 
     @classmethod
     def collate(self, list_of_samples):
@@ -24,11 +25,11 @@ class TMIntElementTraits(TMElementTraits):
 
 class TMFloatElementTraits(TMElementTraits):
 
-    ElementType = (float, np.float64, np.float32)
+    ElementType = (float, np.floating)
 
     @classmethod
     def collate(self, list_of_samples):
-        return T.to_tensor(np.array(list_of_samples)).cast(B.Types.Float)
+        return T.cast(T.to_tensor(np.array(list_of_samples)), B.Types.Float32)
 
 
 class TMTensorElementTraits(TMElementTraits):

@@ -21,7 +21,7 @@ class TMMachine2MemoryModeler(TMModeler):
         return results
 
 
-    def model_datachannel(self, data_channel, scenario: TMScenario):
+    def model_datachannel(self, data_channel, scenario: TMScenario, for_eval):
         """
 
         Args:
@@ -33,13 +33,13 @@ class TMMachine2MemoryModeler(TMModeler):
 
         """
         if self.data_traits and self.data_traits.SAMPLE_OOM_POSSIBLE:
-            super().model_datachannel(data_channel, scenario)
+            super().model_datachannel(data_channel, scenario, for_eval)
         else:
             data_channel.level = TMDataLevel.Memory
             return data_channel
 
 
-    def reconstruct_datachannel(self, channel, scenario: TMScenario, with_truth=False):
+    def reconstruct_datachannel(self, channel, scenario: TMScenario, for_eval, with_truth=False):
         """
 
         Args:
@@ -51,12 +51,12 @@ class TMMachine2MemoryModeler(TMModeler):
 
         """
         if self.data_traits and self.data_traits.SAMPLE_OOM_POSSIBLE:
-            super().reconstruct_datachannel(channel, scenario)
+            super().reconstruct_datachannel(channel, scenario, for_eval, with_truth=with_truth)
         else:
             channel.level = TMDataLevel.Machine
             return channel
 
-    def model(self, data, scenario: TMScenario):
+    def model(self, data, scenario: TMScenario, for_eval=True):
         """
 
         Args:
@@ -73,7 +73,7 @@ class TMMachine2MemoryModeler(TMModeler):
         else:
             yield data
 
-    def reconstruct(self, samples, scenario: TMScenario, with_truth=False):
+    def reconstruct(self, samples, scenario: TMScenario, for_eval=True, with_truth=False):
         """
 
         Args:

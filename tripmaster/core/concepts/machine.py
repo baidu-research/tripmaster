@@ -20,7 +20,7 @@ class TMMachineInterface(object):
         pass
 
     @abc.abstractmethod
-    def forward(self, input, scenario=None):
+    def forward(self, input, scenario):
         raise NotImplementedError()
 
 

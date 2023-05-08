@@ -89,7 +89,7 @@ class TMMachine(M.Module, TMSerializableComponent, TMMachineInterface,
 
         contract_graph.add_subsystem("MachineSubSystem", components)
 
-    def validate_forward_input(self, data, scenario):
+    def validate_forward_input(self, data, scenario, for_eval):
 
         if not self.validate:
             return
@@ -98,37 +98,43 @@ class TMMachine(M.Module, TMSerializableComponent, TMMachineInterface,
             assert self.requires(forward=True, channel=key).is_valid(data)
 
         if scenario == TMScenario.Learning:
-            assert self.loss.requires(forward=True,
+            if self.loss:
+                assert self.loss.requires(forward=True,
                                               channel=TMContractChannel.Truth).is_valid(data)
-        elif scenario == TMScenario.Evaluation:
-            assert self.evaluator.requires(forward=True,
+            if self.evaluator and for_eval:
+                assert self.evaluator.requires(forward=True,
                                                    channel=TMContractChannel.Truth).is_valid(data)
         elif scenario == TMScenario.Inference:
-            pass
+            if self.evaluator and for_eval:
+                assert self.evaluator.requires(forward=True,
+                                               channel=TMContractChannel.Truth).is_valid(data)
         else:
             raise NotImplementedError()
 
 
-    def validate_forward_output(self, output, scenario):
+    def validate_forward_output(self, output, scenario, for_eval):
 
         if not self.validate:
             return
 
         if scenario == TMScenario.Learning:
             assert self.provides(forward=False, channel=TMContractChannel.Learn).is_valid(output)
-            assert self.loss.requires(forward=True,
-                                      channel=TMContractChannel.Learn).is_valid(output)
-        elif scenario == TMScenario.Evaluation:
-            assert self.provides(forward=False, channel=TMContractChannel.Inference).is_valid(output)
-            assert self.evaluator.requires(forward=True,
-                                           channel=TMContractChannel.Inference).is_valid(output)
+            if self.evaluator and for_eval:
+                assert self.evaluator.requires(forward=True,
+                                               channel=TMContractChannel.Inference).is_valid(output)
+            if self.loss:
+                assert self.loss.requires(forward=True,
+                                        channel=TMContractChannel.Learn).is_valid(output)
         elif scenario == TMScenario.Inference:
             assert self.provides(forward=False, channel=TMContractChannel.Inference).is_valid(output)
+            if self.evaluator and for_eval:
+                assert self.evaluator.requires(forward=True,
+                                               channel=TMContractChannel.Inference).is_valid(output)
         else:
             raise NotImplementedError()
 
     @abc.abstractmethod
-    def forward(self, input, scenario=None):
+    def forward(self, input, scenario, for_eval=False):
         """
 
         Args:
@@ -236,7 +242,7 @@ class TMMultiMachine(TMMultiComponentMixin, TMMachine):
         self.loss = TMMultiLoss(loss, hyper_params.weights)
 
 
-    def forward(self, inputs, scenario=None):
+    def forward(self, inputs, scenario=None, for_eval=False):
         """
 
         Args:
@@ -256,7 +262,7 @@ class TMMultiMachine(TMMultiComponentMixin, TMMachine):
                         source_task, source_key = self.dependencies[(task, key)]
                         inputs[task][key] = results[source_task][source_key]
 
-            results[task] = machine.forward(inputs[task], scenario=scenario)
+            results[task] = machine.forward(inputs[task], scenario=scenario, for_eval=for_eval)
 
         return results
 
@@ -324,7 +330,7 @@ class TMSharedMultiTaskMachine(TMMultiMachine):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def private_forward(self, task, scenario, shared_output, inputs):
+    def private_forward(self, task, scenario, for_eval, shared_output, inputs):
         """
 
         Args:
@@ -338,7 +344,7 @@ class TMSharedMultiTaskMachine(TMMultiMachine):
         raise NotImplementedError()
 
 
-    def forward(self, inputs, scenario=None):
+    def forward(self, inputs, scenario=None, for_eval=False):
         """
 
         Args:
@@ -359,7 +365,7 @@ class TMSharedMultiTaskMachine(TMMultiMachine):
                         source_task, source_key = self.dependencies[(task, key)]
                         inputs[task][key] = results[source_task][source_key]
 
-            results[task] = self.private_forward(task, scenario, shared_output, inputs)
+            results[task] = self.private_forward(task, scenario, for_eval, shared_output, inputs)
 
         return results
 

@@ -90,10 +90,8 @@ class TorchNoDistributedStrategy(TMDistributedStrategy):
         init_train_loop
         """
 
-        if self.use_gpu:
-            device = "cuda:" + str(local_rank)
-        else:
-            device = "cpu"
+
+        device = self.operator.device(local_rank)
 
         self.operator.machine.to(device)
 
@@ -143,10 +141,8 @@ class TorchDataParallelStrategy(TMDistributedStrategy):
         """
 
         self.distributed = False
-        if self.use_gpu:
-            device = "cuda:" + str(local_rank)
-        else:
-            device = "cpu"
+
+        device = self.operator.device(local_rank)
 
         self.operator.machine = TorchDPMachine(self.operator.machine)
         self.operator.machine.to(device)
@@ -221,14 +217,14 @@ class TorchDistributedDataParallelStrategy(TMDistributedStrategy):
 
         self.distributed = True
 
-        if self.use_gpu:
-            device = "cuda:" + str(local_rank)
-            backend = "nccl"
-            device_ids = [local_rank]
-        else:
-            device = "cpu"
+        device = self.operator.device(local_rank)
+        if device == "cpu":
             backend = "gloo"
             device_ids = None
+        else:
+            backend = "nccl"
+            device_ids = [local_rank]
+
 
         dist.init_process_group(backend=backend, init_method=f'tcp://127.0.0.1:{self.distributed_port}',
                                 world_size=self.world_size,

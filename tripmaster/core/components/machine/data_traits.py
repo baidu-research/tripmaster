@@ -70,19 +70,21 @@ class TMElementTraitsFactory(object):
 
     def get_element_traits(self, list_of_elems) -> TMElementTraits:
         element = list_of_elems[0]
-        elem_type = type(element)
-
-        if elem_type in self.element_traits_map:
-            return self.element_traits_map[elem_type]
-        else:
-            for key in self.element_traits_map.keys():
-                if isinstance(key, (types.FunctionType, types.MethodType)) and key(element):
-                    return self.element_traits_map[key]
+        # elem_type = type(element)
+        #
+        # if elem_type in self.element_traits_map:
+        #     return self.element_traits_map[elem_type]
+        # else:
+        for key in self.element_traits_map.keys():
+            if isinstance(key, (types.FunctionType, types.MethodType)) and key(element):
+                return self.element_traits_map[key]
+            if isinstance(key, type) and isinstance(element, key):
+                return self.element_traits_map[key]
     #
             # for t in inspect.getmro(elem_type):
             #     if t in self.element_traits_map:
             #         return self.element_traits_map[t]
-        raise UnsupportedTraitsError(f"Unsupported element type {elem_type}")
+        raise UnsupportedTraitsError(f"Unsupported element type {type(element)}")
 
     def get_element_batch_traits(self, batch) -> TMElementBatchTraits:
 

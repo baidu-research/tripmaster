@@ -32,7 +32,7 @@ class TMModelerInterface(abc.ABC):
 
         pass
 
-    def model(self, data: Dict, scenario: TMScenario):
+    def model(self, data: Dict, scenario: TMScenario, for_eval=True):
         """
         Args:
             data: the data to be modeled
@@ -41,7 +41,7 @@ class TMModelerInterface(abc.ABC):
         pass
 
 
-    def reconstruct(self, samples, scenario: TMScenario, with_truth=False):
+    def reconstruct(self, samples, scenario: TMScenario, for_eval=True, with_truth=False):
         """
 
         Args:
@@ -53,7 +53,7 @@ class TMModelerInterface(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def model_sample(self, data: Dict, level: TMDataLevel, scenario: TMScenario):
+    def model_sample(self, data: Dict, level: TMDataLevel, scenario: TMScenario, for_eval):
         """
         model the sample by calling model() method, but keep tracking the history using the level info
         Args:
@@ -64,7 +64,7 @@ class TMModelerInterface(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def reconstruct_sample(self, samples, level: TMDataLevel, scenario: TMScenario):
+    def reconstruct_sample(self, samples, level: TMDataLevel, scenario: TMScenario, for_eval):
         """
         reconstruct the sample by calling reconstruct() method, but pop the history using the level info
         Args:
@@ -76,11 +76,11 @@ class TMModelerInterface(abc.ABC):
 
 
     @abc.abstractmethod
-    def model_datachannel(self, channel: TMDataChannel, scenario: TMScenario):
+    def model_datachannel(self, channel: TMDataChannel, scenario: TMScenario, for_eval):
         pass 
 
     @abc.abstractmethod
-    def reconstruct_datachannel(self, channel: TMDataChannel, scenario: TMScenario):
+    def reconstruct_datachannel(self, channel: TMDataChannel, scenario: TMScenario, for_eval):
         pass 
 
     @abc.abstractmethod

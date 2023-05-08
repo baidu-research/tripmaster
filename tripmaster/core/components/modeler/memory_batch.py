@@ -58,7 +58,7 @@ class TMMemory2BatchModeler(TMModeler):
         self.for_ddp = self.hyper_params.distributed in {"ddp", "fleet"}
 
 
-    def model_datachannel(self, data_channel: TMDataChannel, scenario: TMScenario):
+    def model_datachannel(self, data_channel: TMDataChannel, scenario: TMScenario, for_eval):
 
         # if name == "learn":
         #     data_channel.degenerate()
@@ -94,9 +94,7 @@ class TMMemory2BatchModeler(TMModeler):
             return TMBatchChannel(hyper_params=None, data=data_loader)
 
 
-
-
-    def reconstruct_datachannel(self, channel: TMDataChannel, scenario: TMScenario, with_truth=False):
+    def reconstruct_datachannel(self, channel: TMDataChannel, scenario: TMScenario, for_eval, with_truth=False):
 
         for batch in channel:
             for sample in self.batch_traits.unbatch(batch):
@@ -123,7 +121,7 @@ class TMMergedMemory2BatchModeler(TMMultiModeler):
     TMMultiMachine2MemoryModeler
     """
 
-    def model_datastream(self, data_stream: TMMultiDataStream, inference=False):
+    def model_datastream(self, data_stream: TMMultiDataStream, scenario: TMScenario):
         """
         Merge the data from multiple stream into one target stream, in which the samples
         have an extra layer of key to indicate the source stream.
@@ -149,7 +147,7 @@ class TMMergedMemory2BatchModeler(TMMultiModeler):
             if modeler is None:
                 result[stream_name] = data_stream[stream_name]
             else:
-                result_datastream = modeler.model_datastream(data_stream[stream_name], inference=inference)
+                result_datastream = modeler.model_datastream(data_stream[stream_name], scenario=scenario)
                 result[stream_name] = result_datastream
                 result_level = result_datastream.level
 
@@ -157,7 +155,7 @@ class TMMergedMemory2BatchModeler(TMMultiModeler):
 
         return result
 
-    def reconstruct_datastream(self, data_stream: TMMultiDataStream, inference=False):
+    def reconstruct_datastream(self, data_stream: TMMultiDataStream, scenario: TMScenario, with_truth=False):
         """
 
         Args:
@@ -176,7 +174,7 @@ class TMMergedMemory2BatchModeler(TMMultiModeler):
                 result[stream_name] = data_stream[stream_name]
             else:
                 result_datastream = modeler.reconstruct_datastream(
-                    data_stream[stream_name], inference=inference)
+                    data_stream[stream_name], scenario=scenario, with_truth=with_truth)
                 result[stream_name] = result_datastream
                 result_level = result_datastream.level
 

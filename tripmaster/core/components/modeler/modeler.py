@@ -16,6 +16,7 @@ from tripmaster.core.concepts.data import TMDataStream, TMDataLevel, TMDataChann
 from tripmaster.core.concepts.modeler import TMModelerInterface, TMMultiModelerInterface
 from tripmaster.core.concepts.scenario import TMScenario
 from tripmaster.core.concepts.schema import TMSchema
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
 
         return results
 
-    def model_sample(self, sample, level: TMDataLevel, scenario: TMScenario):
+    def model_sample(self, sample, level: TMDataLevel, scenario: TMScenario, for_eval):
 
         if self.upstream_contract:
             contracted_sample = self.upstream_contract.forward(sample)
@@ -198,7 +199,7 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
             for key in (TMContractChannel.Source, TMContractChannel.Target):
                 assert self.requires(forward=True, channel=key).is_valid(contracted_sample)
 
-        for result in self.model(contracted_sample, scenario):
+        for result in self.model(contracted_sample, scenario, for_eval):
             if self.validate:
                 for key in (TMContractChannel.Source, TMContractChannel.Target):
                     assert self.provides(forward=True, channel=key).is_valid(result)
@@ -211,7 +212,7 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
             yield result
 
     def reconstruct_sample(self, samples, level: TMDataLevel,
-                           scenario: TMScenario, with_truth=False):
+                           scenario: TMScenario, for_eval, with_truth=False):
 
 
         if self.downstream_contract:
@@ -225,7 +226,7 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
                     assert self.requires(forward=False, channel=key).is_valid(x)
 
         target_samples = self.pop_history(modeler_inner_samples, input_level=level)
-        result = self.reconstruct(target_samples, scenario=scenario, with_truth=with_truth)
+        result = self.reconstruct(target_samples, scenario=scenario, for_eval=for_eval, with_truth=with_truth)
 
         if self.validate and scenario == TMScenario.Inference:
             for key in (TMContractChannel.Inference,):
@@ -236,7 +237,7 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
 
         return result
 
-    def model_datachannel(self, data_channel: TMDataChannel, scenario: TMScenario):
+    def model_datachannel(self, data_channel: TMDataChannel, scenario: TMScenario, for_eval):
         """
         Args:
             samples ():
@@ -251,7 +252,7 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
         for idx, sample in enumerate(data_channel):
 
             try:
-                results = list(self.model_sample(sample, scenario=scenario, level=data_channel.level))
+                results = list(self.model_sample(sample, scenario=scenario, for_eval=for_eval, level=data_channel.level))
             except Exception as e:
                 logger.error(f"Error in model_sample: Uri: {sample['uri']}, Error: {e}")
                 logger.exception(e)
@@ -260,14 +261,19 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
             for result in results:
                 uri_key = TMDataLevel.uri_key(data_channel.level)
                 result[uri_key] = idx
-                processed.append(result)
+                if scenario == TMScenario.Learning:
+                    processed.append(result)
+                else:
+                    yield result
 
         # make sure the problem samples for a raw sample are ordered together
         # processed.sort(key=lambda x: x[TMTaskDataStream.SAMPLE_URI_KEY])
         # processed = add_sample_uri(processed, TMProblemDataStream.SAMPLE_URI_KEY)
-        return processed
+        if scenario == TMScenario.Learning:
+            return processed
 
     def reconstruct_datachannel(self, data_channel: TMDataChannel, scenario: TMScenario,
+                                for_eval,
                                 with_truth=False):
         """
 
@@ -298,11 +304,10 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
         def key_func(x):
             return x[uri_key]
 
-        for key, group in itertools.groupby(data_iter,
-                                            key=key_func):
+        for key, group in itertools.groupby(data_iter, key=key_func):
 
             yield self.reconstruct_sample(group, level=data_channel.level,
-                                          scenario=scenario, with_truth=with_truth)
+                                          scenario=scenario, for_eval=for_eval, with_truth=with_truth)
 
 
     def model_datastream(self, datastream: TMDataStream, scenario: TMScenario):
@@ -315,21 +320,18 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
         Returns:
 
         """
-        channel_scenario_map = dict()
+        assert scenario in {TMScenario.Learning, TMScenario.Inference}, f"Unknown scenario {scenario}"
+
+        # evaluation generally requires more information than in learning/inferencing, so
+        # if a channel appears both in learning/inferencing and evaluaton channel, we mark it with for_eval = True
+        channel_for_eval_map = dict()
         if scenario == TMScenario.Learning:
-            channel_scenario_map.update((x, TMScenario.Evaluation) for x in datastream.eval_channels)
-            # if a channel occurs both in Evaluation and Learn, make sure it's scenario is set to Learn
-            channel_scenario_map.update((x, TMScenario.Learning) for x in datastream.learn_channels)
-        elif scenario == TMScenario.Evaluation:
-            channel_scenario_map.update((x, TMScenario.Evaluation) for x in datastream.eval_channels)
-        elif scenario == TMScenario.Inference:
-            channel_scenario_map.update((x, TMScenario.Inference) for x in datastream.inference_channels)
-            # if a channel occurs both in Evaluation and Inference, make sure it's scenario is set to Evaluation
-            channel_scenario_map.update((x, TMScenario.Evaluation) for x in datastream.eval_channels)
+            channel_for_eval_map.update((x, False) for x in datastream.learn_channels)
+            channel_for_eval_map.update((x, True) for x in datastream.eval_channels)
+        else: # scenario == TMScenario.Inference:
+            channel_for_eval_map.update((x, False) for x in datastream.inference_channels)
+            channel_for_eval_map.update((x, True) for x in datastream.eval_channels)
 
-
-        else:
-            raise Exception(f"Unknown scenario {scenario}")
 
         target_stream = TMDataStream()
         target_stream.level = TMDataLevel.model(datastream.level)
@@ -338,13 +340,14 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
         target_stream.eval_channels = datastream.eval_channels
         target_stream.inference_channels = datastream.inference_channels
 
-        for channel, channel_scenario in channel_scenario_map.items():
+        for channel, for_eval in channel_for_eval_map.items():
 
             data_channel = datastream[channel]
 
-            logger.info(f"Building {target_stream.level} dataset for channel {channel} in scenario {channel_scenario}")
+            logger.info(f"Modeling {target_stream.level} dataset for channel {channel} in scenario {scenario}"
+                        f"{' NOT ' if not for_eval else ' '}for evaluation")
 
-            target_data_channel = self.model_datachannel(data_channel, scenario=scenario)
+            target_data_channel = self.model_datachannel(data_channel, scenario=scenario, for_eval=for_eval)
 
             target_stream[channel] = target_data_channel
 
@@ -365,6 +368,20 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
 
         """
 
+        assert scenario in {TMScenario.Learning, TMScenario.Inference}, f"Unknown scenario {scenario}"
+
+        # evaluation generally requires more information than in learning/inferencing, so
+        # if a channel appears both in learning/inferencing and evaluaton channel, we mark it with for_eval = True
+        channel_for_eval_map = dict()
+        if scenario == TMScenario.Learning:
+            channel_for_eval_map.update((x, False) for x in datastream.learn_channels)
+            channel_for_eval_map.update((x, True) for x in datastream.eval_channels)
+        else: # scenario == TMScenario.Inference:
+            channel_for_eval_map.update((x, False) for x in datastream.inference_channels)
+            channel_for_eval_map.update((x, True) for x in datastream.eval_channels)
+
+
+
         target_stream = TMDataStream()
 
         target_stream.level = TMDataLevel.reconstruct(datastream.level)
@@ -373,21 +390,19 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
         target_stream.eval_channels = datastream.eval_channels
         target_stream.inference_channels = datastream.inference_channels
 
-        channel_scenario_map = dict()
-        if scenario in {TMScenario.Learning, TMScenario.Evaluation}:
-            channel_scenario_map.update((x, TMScenario.Evaluation) for x in datastream.eval_channels)
-        elif scenario == TMScenario.Inference:
-            channel_scenario_map.update((x, TMScenario.Inference) for x in datastream.inference_channels)
-            channel_scenario_map.update((x, TMScenario.Evaluation) for x in datastream.eval_channels)
-        else:
-            raise Exception(f"Unknown scenario {scenario}")
 
-        for channel, channel_scenario in channel_scenario_map.items():
+        for channel, for_eval in channel_for_eval_map.items():
+
+            logger.info(f"Reconstructing {target_stream.level} dataset for channel {channel} in scenario {scenario}"
+                        f"{' NOT ' if not for_eval else ' '}for evaluation")
 
             target_datachannel = self.reconstruct_datachannel(datastream[channel],
                                                               scenario=scenario,
+                                                              for_eval=for_eval,
                                                               with_truth=with_truth)
             target_stream[channel] = target_datachannel
+
+            logger.info(f"Channel {channel} reconstructed.")
 
         return target_stream
 

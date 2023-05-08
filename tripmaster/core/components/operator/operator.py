@@ -85,12 +85,12 @@ class TMOperator(TMOperatorInterface):
 
 
     @abc.abstractmethod
-    def fit_memory(self, machine_samplestream: TMDataStream, scenario: TMScenario):
+    def fit_memory(self, machine_samplestream: TMDataStream, scenario: TMScenario, for_eval):
         pass
 
     @abc.abstractmethod
     def unfit_memory(self, memory_samplestream: TMDataStream, scenario: TMScenario,
-                     with_truth=False):
+                     for_eval, with_truth=False):
         pass
 
     @abc.abstractmethod
@@ -138,7 +138,8 @@ class TMOperator(TMOperatorInterface):
 
         use_gpu = self.distributed_strategy.use_gpu
         if use_gpu:
-            device = f"{D.device_prefix()}:{local_rank}"
+            prefix = D.device_prefix()
+            device = f"{prefix}:{local_rank}" if local_rank else prefix
         else:
             device = "cpu"
 
@@ -149,9 +150,9 @@ class TMOperator(TMOperatorInterface):
         reallocate data to current working device determined by local_rank
         """
 
-        use_gpu = self.distributed_strategy.use_gpu
-        if use_gpu:
-            device = f"{D.device_prefix()}:{local_rank}"
+        device = self.device(local_rank)
+
+        if device != "cpu":
             data = self.machine.BatchTraits.to_device(data, device)
         return data
 
@@ -318,7 +319,7 @@ class TMLearnerMixin(TMConfigurable):
         # if local_rank != 0:
         #     return
 
-        signal_returns = self.evaluate(train_batchstreams, local_rank, epoch, step)
+        signal_returns = self.evaluate(train_batchstreams, TMScenario.Learning, local_rank, epoch, step)
         assert len(signal_returns) == 1
         evaluation_results = signal_returns[0][1]
 

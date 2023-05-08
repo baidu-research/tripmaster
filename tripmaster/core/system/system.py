@@ -476,6 +476,11 @@ class TMSystem(TMSerializableComponent):
 
         assert isinstance(machine_inference_info, MachineEvaluationStreamInfo)
 
+        if self.is_learning():
+            scenario = TMScenario.Learning
+        else:
+            scenario = TMScenario.Inference
+
         eval_results = {}
 
         evalation_termination_info = EvaluationTerminatingInfo(
@@ -494,25 +499,22 @@ class TMSystem(TMSerializableComponent):
             last_inference_info = machine_inference_info
             last_strategy = self.machine_evaluating_strategy
 
+
+
         if self.problem_evaluating_strategy or self.task_evaluating_strategy:
 
             truth_stream = self.operator.unbatchify(
-                machine_inference_info.truth_stream, scenario=TMScenario.Evaluation,
-                with_truth=True)
-            truth_stream = self.operator.unfit_memory(truth_stream, scenario=TMScenario.Evaluation,
-                                                      with_truth=True)
+                machine_inference_info.truth_stream, scenario=scenario, with_truth=True)
+            truth_stream = self.operator.unfit_memory(truth_stream, scenario=scenario, with_truth=True)
             inference_stream = self.operator.unbatchify(
-                machine_inference_info.inferenced_stream, scenario=TMScenario.Evaluation,
-                with_truth=False)
-            inference_stream = self.operator.unfit_memory(inference_stream,
-                                                          scenario=TMScenario.Evaluation,
-                                                          with_truth=False)
+                machine_inference_info.inferenced_stream, scenario=scenario, with_truth=False)
+            inference_stream = self.operator.unfit_memory(inference_stream, scenario=scenario, with_truth=False)
 
             if self.pm_modeler is not None:
                 truth_problem_stream = self.pm_modeler.reconstruct_datastream(
-                    truth_stream, scenario=TMScenario.Evaluation, with_truth=True)
+                    truth_stream, scenario=scenario, with_truth=True)
                 inference_problem_stream = self.pm_modeler.reconstruct_datastream(
-                    inference_stream, scenario=TMScenario.Evaluation, with_truth=False)
+                    inference_stream, scenario=scenario, with_truth=False)
             else:
                 truth_problem_stream = truth_stream
                 truth_problem_stream.level = TMDataLevel.reconstruct(truth_stream.level)
@@ -532,17 +534,17 @@ class TMSystem(TMSerializableComponent):
                 self.problem_evaluating_strategy.on_evaluation_begin()
                 problem_inference_info = self.problem_evaluating_strategy.on_stream_inferenced(problem_inference_info)
 
-                last_inference_info = problem_inference_info
-                last_strategy = self.problem_evaluating_strategy
+            last_inference_info = problem_inference_info
+            last_strategy = self.problem_evaluating_strategy
 
         if self.task_evaluating_strategy:
             if self.tp_modeler is not None:
                 task_truth_stream = self.tp_modeler.reconstruct_datastream(
-                    problem_inference_info.truth_stream, scenario=TMScenario.Evaluation,
+                    problem_inference_info.truth_stream, scenario=scenario,
                     with_truth=True
                 )
                 task_inference_stream = self.tp_modeler.reconstruct_datastream(
-                    problem_inference_info.inferenced_stream, scenario=TMScenario.Evaluation,
+                    problem_inference_info.inferenced_stream, scenario=scenario,
                     with_truth=False
                 )
             else:
@@ -628,8 +630,9 @@ class TMSystem(TMSerializableComponent):
                 callback.on_machine_data_built(input_data_stream)
 
             logger.info(f"machine data build: ")
-            for channel in input_data_stream.channels:
-                logger.info(f"\t{channel}: {len(input_data_stream[channel])}")
+            if self.is_learning():
+                for channel in input_data_stream.channels:
+                    logger.info(f"\t{channel}: {len(input_data_stream[channel])}")
 
         for callback in self.callbacks:
             callback.on_data_phase_finished(self)
