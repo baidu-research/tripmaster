@@ -481,15 +481,13 @@ class TMSuperviseInferencer(TMSuperviseOperator, TMSupervisedEvaluatorMixin):
         with P.OptimizerBehaviors.no_grad():
             for i, batch in tqdm(enumerate(data_loader), desc=f"Inferencing Channel {channel}: "):
                 try:
-
                     yield from self.inference_batch(batch, for_eval, local_rank)
-
                 except Exception as e:
-
                     batch_traits = self.machine.BatchTraits
                     shapes = batch_traits.shape(batch)
-                    logger.error(f"Learn for {i}-th Batch, Data Shapes = {shapes}")
-                    raise e
+                    logger.error(f"Inference for {i}-th Batch, Data Shapes = {shapes}")
+                    if "uri@task" in batch:
+                        logger.error(f"batches causing the error: {batch['uri@task']}")
 
     def inference(self, local_rank, predict_batchstreams: TMDataStream, runtime_options):
         """
