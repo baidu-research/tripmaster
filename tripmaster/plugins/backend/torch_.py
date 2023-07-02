@@ -371,6 +371,26 @@ class TorchBasicTensorOperations(TMBasicTensorOperations):
     Tensor = torch.Tensor
 
     @classmethod
+    def zeros(cls, *args, dtype=None, device=None):
+        return torch.zeros(* args, dtype=dtype, device=device)
+
+    @classmethod
+    def ones(cls, *args, dtype=None, device=None):
+        return torch.ones(* args, dtype=dtype, device=device)
+
+    @classmethod
+    def logical_and(cls, a, b):
+        return torch.logical_and(a, b)
+
+    @classmethod
+    def logical_or(cls, a, b):
+        return torch.logical_or(a, b)
+
+    @classmethod
+    def logical_not(cls, a):
+        return torch.logical_not(a)
+
+    @classmethod
     def is_tensor(self, x):
         return isinstance(x, torch.Tensor)
 

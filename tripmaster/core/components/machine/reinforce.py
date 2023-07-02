@@ -3,20 +3,25 @@ enviornments
 """
 from abc import abstractmethod
 
+from tripmaster.core.components.machine.data_traits import TMSampleBatchTraits
+
 
 class TMPolicyMachineInterface(object):
     """
     TMPolicyMachine
     """
 
+    ObservationBatchTraits = TMSampleBatchTraits
+    ActionBatchTraits = TMSampleBatchTraits
+
     @abstractmethod
-    def explore(self, observation, batch_mask=None):
+    def action_distribution(self, observation, batch_mask=None):
         """
-        explore action from action space according to the observation
+        compute the distribution of actions according to the observation
         Args:
             observation:
         Returns:
-            {actions: a, log_prob: log(p(a|s))}
+            [batch_size, action_numbers, action_space_size]
 
         """
         raise NotImplementedError()

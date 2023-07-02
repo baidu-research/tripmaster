@@ -11,6 +11,7 @@ from tripmaster.core.app.standalone import TMDefaultSystemRuntimeCallback
 from tripmaster.core.concepts.component import TMConfigurable
 from tripmaster.core.concepts.hyper_params import TMHyperParams
 from tripmaster.core.system.system import is_multi_system
+from tripmaster.core.concepts.scenario import TMScenario
 
 from tripmaster import logging
 
@@ -20,7 +21,7 @@ class TMReinforceApp(TMConfigurable):
     """
     TMReinforceApp: reinforcement learning application
     """
-    EnvironmentPoolType = None
+    EnvPoolGroupBuilderType = None
     OutputStreamType = None
     SystemType = None
 
@@ -32,7 +33,7 @@ class TMReinforceApp(TMConfigurable):
         if self.callbacks is None:
             self.callbacks = [TMDefaultSystemRuntimeCallback(self.hyper_params)]
 
-        self.env_pool = self.EnvironmentPoolType(self.hyper_params.io.env)
+        self.env_pool_builder = self.EnvPoolGroupBuilderType(self.hyper_params.io.env)
         # self.output_stream = self.OutputStreamType(self.hyper_params.io.output)
 
         if self.OutputStreamType:
@@ -96,11 +97,22 @@ class TMReinforceApp(TMConfigurable):
         logger.info(f"the application is running in test mode with test setting {test_config}")
         self.system.test(test_config)
 
+        self.env_pool_builder.test(test_config)
+
     def run(self):
 
         runtime_options = self.hyper_params.job
 
-        result = self.system.run(self.env_pool, runtime_options)
+        if self.system.is_learning():
+            scenario = TMScenario.Learning
+        else:
+            scenario = TMScenario.Inference
+
+        env_pool_group = self.env_pool_builder.build(scenario)
+
+        #ToDO : add problem modeled hook here
+
+        result = self.system.run(env_pool_group, runtime_options)
 
         if not self.system.is_learning() and self.output_data_stream is not None:
             self.output_data_stream.write(result)

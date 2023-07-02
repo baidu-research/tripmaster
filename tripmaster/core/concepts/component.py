@@ -339,7 +339,7 @@ class TMSerializableComponent(TMComponent, TMSerializable):
 
 
     @classmethod
-    def create(cls, hyper_param,  *args, **kwargs):
+    def create(cls, hyper_params,  *args, **kwargs):
         """
 
         Returns:
@@ -347,12 +347,12 @@ class TMSerializableComponent(TMComponent, TMSerializable):
         """
         from tripmaster.core.components.repo import TMRepo
 
-        if not hyper_param:
+        if not hyper_params:
             return cls(*args, hyper_params=None, **kwargs)
 
-        if hyper_param.serialize and hyper_param.serialize.load:
+        if hyper_params.serialize and hyper_params.serialize.load:
 
-            serialized_path = os.path.expanduser(hyper_param.serialize.load)
+            serialized_path = os.path.expanduser(hyper_params.serialize.load)
             logger.info(f"trying to load serialized component {serialized_path}")
             if not os.path.exists(serialized_path):
 
@@ -365,11 +365,11 @@ class TMSerializableComponent(TMComponent, TMSerializable):
                     message = f"Failed to obtain component from repo using uri {repo_uri}"
                     logger.error(message)
                     raise Exception(message)
-                hyper_param.serialize.load = serialized_path
-            component = cls.deserialize(serialized_path, hyper_param)
+                hyper_params.serialize.load = serialized_path
+            component = cls.deserialize(serialized_path, hyper_params)
             logger.info(f"component loaded from {serialized_path}")
         else:
-            component = cls(hyper_param, *args, **kwargs)
+            component = cls(hyper_params, *args, **kwargs)
 
         return component
     

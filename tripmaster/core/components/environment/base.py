@@ -5,13 +5,21 @@ import enum
 import types
 from abc import abstractmethod
 from itertools import zip_longest
+from random import shuffle
 from typing import Type, Optional, Union, Tuple, List, TypeVar
 
 import numpy as np
+from more_itertools import chunked
+
+from tripmaster import T
 
 ObsType = TypeVar("ObsType")
 ActType = TypeVar("ActType")
 
+
+from tripmaster import logging
+
+logger = logging.getLogger()
 # try:
 #     import gym
 #     from gym.core import ObsType, ActType
@@ -21,7 +29,7 @@ ActType = TypeVar("ActType")
 from tripmaster.core.components.machine.data_traits import TMSampleMemoryTraits, TMSampleBatchTraits
 from tripmaster.core.components.modeler.memory_batch import TMMemory2BatchModeler
 from tripmaster.core.components.modeler.modeler import TMModeler
-from tripmaster.core.concepts.component import TMSerializableComponent, TMConfigurable
+from tripmaster.core.concepts.component import TMSerializableComponent, TMConfigurable, TMSerializable
 from tripmaster.core.concepts.contract import TMContract, TMContractChannel
 from tripmaster.core.concepts.data import TMDataChannel, TMDataStream, TMDataLevel
 import math
@@ -31,17 +39,9 @@ from tripmaster.core.concepts.scenario import TMScenario
 
 class TMEnvironmentInterface:
 
-    @property
-    def level(self):
-        pass
 
-    @property
-    def scenario(self):
-        pass
 
-    @scenario.setter
-    def scenario(self, value: TMScenario):
-        pass
+
 
     def accumulated_reward(self, rewards):
         """
@@ -69,51 +69,32 @@ class TMEnvironmentInterface:
         """
         return None
 
-    @abstractmethod
-    def reset(
-            self,
-            *,
-            seed: Optional[int] = None,
-            return_info: bool = False,
-            options: Optional[dict] = None,
-    ) -> Union[ObsType, Tuple[ObsType, dict]]:
-        """
-        Reset the environment's state.
-        Note that this differs from the `reset` method of `gym.Env`, which returns None
-        if the random state is exhausted.
-        Returns:
-            observation (object): the initial observation.
 
-        Args:
-            seed:
-            return_info:
-            options:
-
-        Returns:
-
-        """
-
-        pass
-
-    @abstractmethod
-    def step(
-        self, action: ActType,
-    ) -> Tuple[List[ObsType], List[float], List[bool], List[bool], List[dict]]:
-
-        raise Exception("Not implemented")
-
-
-
-class TMEnvironment(TMConfigurable, TMEnvironmentInterface):
+class TMEnvironment(TMSerializableComponent):
     """
     TMEnvironment
     """
 
-    def __init__(self, hyper_params):
-        super().__init__(hyper_params=hyper_params)
+    def __init__(self, hyper_params,
+                 scenario=TMScenario.Learning,
+                 eval=False,
+                 states=None):
+        super().__init__(hyper_params=hyper_params,
+                         states=states)
 
         if not self.hyper_params.gamma:
             self.hyper_params.gamma = 1.0
+
+        self.__scenario = scenario
+        self.__eval = eval
+
+    @property
+    def scenario(self):
+        return self.__scenario
+
+    @property
+    def eval(self):
+        return self.__eval
 
     def accumulated_reward(self, rewards):
         """
@@ -143,146 +124,331 @@ class TMEnvironment(TMConfigurable, TMEnvironmentInterface):
         return future_reward
 
 
-class TMBatchEnvironmentInterface(TMEnvironmentInterface):
+    @abstractmethod
+    def reset(
+            self,
+            *,
+            seed: Optional[int] = None,
+            options: Optional[dict] = None,
+    ) -> Union[ObsType, Tuple[ObsType, dict]]:
+        """
+        Reset the environment's state.
+        Note that this differs from the `reset` method of `gym.Env`, which returns None
+        if the random state is exhausted.
+        Returns:
+            observation (object): the initial observation.
 
-    def batch_size(self):
+        Args:
+            seed:
+            return_info:
+            options:
+
+        Returns:
+
+        """
 
         pass
 
-class TMDefaultBatchEnvironment(TMBatchEnvironmentInterface):
+    @abstractmethod
+    def step(
+        self, action: ActType,
+    ) -> Tuple[List[ObsType], List[float], List[bool], List[bool], List[dict]]:
+        """
+        Run one timestep of the environment's dynamics.
+        Accepts an action and returns a tuple (observation, reward, terminated, truncated, info).
+        """
+
+        raise Exception("Not implemented")
+
+
+
+class TMBatchEnvironment(TMEnvironment):
     """
     TMBatchEnvironment
     """
 
-    def __init__(self, hyper_params, env_proto: TMEnvironmentInterface, batch_size):
-        super().__init__(hyper_params=hyper_params)
-        assert batch_size > 0
-        import copy
-        self.envs = [copy.copy(env_proto) for _ in batch_size]
+    ObservationBatchTraits = TMSampleBatchTraits
+    ActionBatchTraits = TMSampleBatchTraits
 
-    def level(self):
-        return self.envs[0].level()
+    def __init__(self, hyper_params=None, envs: TMEnvironmentInterface=None,
+                 scenario=TMScenario.Learning, eval=False, states=None):
+        super().__init__(hyper_params=hyper_params, scenario=scenario, eval=eval, states=states)
+
+        self.__envs = envs
+
 
     def batch_size(self):
-        return len(self.envs)
+        return len(self.__envs)
 
-    @property
-    def scenario(self):
-        scenarios = [env.scenario for env in self.envs]
-        assert len(set(scenarios)) == 1
-        return scenarios[0]
-
-    @scenario.setter
-    def scenario(self, value: TMScenario):
-        for env in self.envs:
-            env.scenario = value
-
-    def __getattr__(self, attr):
-
-        values = [getattr(env, attr) for env in self.envs]
-        if isinstance(values[0], (types.FunctionType, types.MethodType)):
-            def wrapper(*args, **kwargs):
-                results = []
-                for idx, func in enumerate(values):
-                    result = func(*[arg[idx] for arg in args], **dict((k, v[idx]) for k, v in kwargs.items()))
-                    results.append(result)
-                return results
-            return wrapper
-        else:
-            return values
-
-    def __setattr__(self, key, value):
-
-        for env in self.envs:
-            setattr(env, key, value)
+    # def __getattr__(self, attr):
+    #
+    #     values = [getattr(env, attr) for env in self.__envs]
+    #     if isinstance(values[0], (types.FunctionType, types.MethodType)):
+    #         def wrapper(*args, **kwargs):
+    #             results = []
+    #             for idx, func in enumerate(values):
+    #                 result = func(*[arg[idx] for arg in args], **dict((k, v[idx]) for k, v in kwargs.items()))
+    #                 results.append(result)
+    #             return results
+    #         return wrapper
+    #     else:
+    #         return values
+    #
+    # def __setattr__(self, key, value):
+    #
+    #     for env in self.envs:
+    #         setattr(env, key, value)
 
     def reset(
         self,
         *args,
         seed: Optional[int] = None,
-        return_info: bool = False,
         options: Optional[dict] = None,
     ) -> List[ObsType]:
 
-        return [env.reset(*args, seed, return_info, options)
-                for env in self.envs
-                ]
+        results = list(zip(* [env.reset(*args, seed=seed, options=options)
+                                    for env in self.__envs
+                                    ]))
+
+        observation, info = results
+        observation = self.ObservationBatchTraits.batch(list(observation))
+
+        return observation, info
+
 
     def step(
-        self, action: ActType,
+        self, action_batch: ActType,
+        batch_mask: Optional[Union[List[bool], np.ndarray, T.Tensor]] = None,
     ) -> Tuple[List[ObsType], List[float], List[bool], List[bool], List[dict]]:
 
-        return tuple(zip_longest(*[env.step(act)
-                           for env, act in zip_longest(self.envs, action)]))
+        actions = self.ActionBatchTraits.unbatch(action_batch)
+
+        if batch_mask is None:
+            batch_mask = [False] * self.batch_size()
+
+        step_results = list(zip(*[env.step(act) if not batch_mask[idx] else [None, 0.0, True, True, {}]
+                           for idx, (env, act) in enumerate(zip(self.__envs, actions))]))
+
+        observation, reward, terminated, truncated, info = step_results
+
+        observation = self.ObservationBatchTraits.batch(observation)
+        reward = T.to_tensor(reward)
+        terminated = T.to_tensor(terminated)
+        truncated = T.to_tensor(truncated)
+
+        return observation, reward, terminated, truncated, info
 
     def close(self):
 
-        for env in self.envs:
+        for env in self.__envs:
             env.close()
 
 
-class TMEnvironmentPoolInterface:
 
-
-    def level(self):
-        pass
-
-    @property
-    def scenario(self):
-        pass
-
-    @scenario.setter
-    def scenario(self, value: TMScenario):
-        pass
-
-    @abstractmethod
-    def apply_modeler(self, modeler, scenario: TMScenario):
-        raise NotImplementedError()
-
-    def batchify(self, batch_modeler, scenario: TMScenario):
-        raise NotImplementedError()
-
-
-    @abstractmethod
-    def envs(self):
-        """
-        generate batches of environments
-        Args:
-            batch_size:
-            batch_num:
-
-        Returns:
-
-        """
-        raise NotImplementedError
-
-class TMEnvironmentPool(TMSerializableComponent, TMEnvironmentPoolInterface):
+class TMEnvironmentPool(TMSerializableComponent):
     """
     TMEnvironmentPool: preserve a pool of environments for training
     the environments may be identical or different.
     """
 
-    def __init__(self, hyper_params, level, states=None):
-        super().__init__(hyper_params, states=states)
+    def __init__(self, hyper_params, name: str,
+                 envs=None,
+                 scenario=TMScenario.Learning,
+                 eval=False,
+                 states=None):
+        super().__init__(hyper_params, scenario=scenario, states=states)
 
-        self.__level = level
+        self.__name = name
         self.__scenario = None
+        self.__eval = eval
+        self.__envs = envs
         if states:
             self.load_states(states)
 
     @property
-    def level(self):
-        return self.__level
+    def name(self):
+        return self.__name
 
     @property
     def scenario(self):
         return self.__scenario
 
-    @scenario.setter
-    def scenario(self, value: TMScenario):
-        self.__scenario = value
+    @property
+    def eval(self):
+        return self.__eval
+
+    @property
+    def envs(self):
+        return self.__envs
+
+    def choose(self, sample_num):
+
+        indexes = list(range(len(self.__envs)))
+        shuffle(indexes)
+
+        ic(len(indexes))
+        ic(sample_num)
+
+        for index_chunk in chunked(indexes, sample_num):
+            yield TMBatchEnvironment(envs=[self.__envs[index] for index in index_chunk])
 
     @abstractmethod
     def test(self, test_config):
         pass
+
+
+class TMEnvironmentPoolGroup(TMSerializableComponent):
+    """
+    TMDataStream
+    Some thoughts, but not feasible: "Note: as a fundamental components of TM which across all the data pipeline,
+          it should not be subclassed and change its default behavior.
+          For old code, please load the data in TMOfflineInputStream and then
+          return a TMDataStream"
+    """
+
+    def __init__(self, hyper_params=None, scenario=TMScenario.Learning,
+                 eval=False,
+                 test_config=None,
+                 states=None):
+
+        super().__init__(hyper_params)
+
+        self._pools = dict()
+        self._scenario = scenario
+        self._eval = eval
+        self._test_config = test_config
+
+        if states is not None:
+            self.load_states(states)
+            logger.info("add sampled training eval channel ")
+
+            # if self.hyper_params.train_sample_ratio_for_eval or self.hyper_params.train_sample_ratio_for_eval > 0:
+            #     ratio = self.hyper_params.train_sample_ratio_for_eval
+            #     self.add_sampled_training_eval_channels(ratio)
+
+            logger.info("sampled training eval channel added")
+
+    def choose(self, sample_num, eval=False):
+
+        if eval:
+            pools = self.eval_pools
+        else:
+            if self.scenario == TMScenario.Learning:
+                pools = self.learn_pools
+            elif self.scenario == TMScenario.Inference:
+                pools = self.inference_pools
+            else:
+                raise Exception("Unknown scenario with eval=False")
+
+        for pool_name in pools:
+            yield from self[pool_name].choose(sample_num=sample_num)
+
+
+    @property
+    def scenario(self):
+        return self._scenario
+
+    @property
+    def eval(self):
+        return self._eval
+
+    @property
+    def pools(self):
+        return self._pools.keys()
+
+    @property
+    def learn_pools(self):
+        return self.hyper_params.pools.learn if self.hyper_params.pools.learn else []
+
+    # def add_sampled_training_eval_channels(self, ratio=None):
+    #
+    #     if ratio is None:
+    #         ratio = self.hyper_params.train_sample_ratio_for_eval
+    #         if not ratio or (isinstance(ratio, (int, float)) and ratio < 0):
+    #             return
+    #
+    #     import random, copy
+    #     sampled_channels = []
+    #     for channel in self.learn_channels:
+    #         assert channel in self.__pools
+    #
+    #         sampled = [copy.deepcopy(sample) for sample in self.__pools[channel]
+    #                    if random.random() < ratio]
+    #         if len(sampled) <= 0:
+    #             continue
+    #         sampled_channels.append(f"{channel}#sampled")
+    #
+    #         self.__pools[f"{channel}#sampled"] = TMDataChannel(data=sampled, level=self.__level)
+    #
+    #     self.hyper_params.channels.eval = list(set(list(self.hyper_params.channels.eval) + sampled_channels))
+
+    @learn_pools.setter
+    def learn_pools(self, value):
+        self.hyper_params.pools.learn = tuple(value)
+
+    @property
+    def eval_pools(self):
+        return self.hyper_params.pools.eval if self.hyper_params.pools.eval else []
+
+    @eval_pools.setter
+    def eval_pools(self, value):
+        self.hyper_params.pools.eval = tuple(value)
+
+    @property
+    def inference_pools(self):
+        return self.hyper_params.pools.inference if self.hyper_params.pools.inference else []
+
+    @inference_pools.setter
+    def inference_pools(self, value):
+        self.hyper_params.channels.inference = tuple(value)
+
+    def __getitem__(self, item):
+
+        return self._pools[item]
+
+    def __setitem__(self, key, value):
+        if not isinstance(value, TMEnvironmentPool):
+            value = TMEnvironmentPool(hyper_params=None, name=key,
+                                      envs=value, scenario=self.scenario,
+                                      eval=self.eval)
+
+        self._pools[key] = value
+
+    def test(self, test_config):
+
+        for k, v in self._pools.items():
+            v.sample_num = test_config.sample_num
+
+        self.add_sampled_learning_eval_pools(ratio=1)
+
+    def states(self):
+        for k, v in self._pools.items():
+            v.reuse()
+
+        return {"groups": {k: v._data for k, v in self._pools.items() if not k.endswith("#sampled")},
+                "level": self._level}
+
+    def secure_hparams(self):
+        import copy
+        hyper_params = copy.deepcopy(self.hyper_params)
+        for channel in hyper_params.channels:
+            hyper_params.channels[channel] = [k for k in hyper_params.channels[channel]
+                                              if not k.endswith("#sampled")]
+        return hyper_params
+
+    def load_states(self, states):
+        self._level = states["level"]
+        self._pools = {k: TMDataChannel(data=v, level=self._level)
+                        for k, v in states["channels"].items() if not k.endswith("#sampled")}
+
+
+class TMEnvironmentPoolGroupBuilder(TMSerializableComponent):
+
+    @abstractmethod
+    def test(self, test_config):
+        pass
+
+    @abstractmethod
+    def build(self, ** inputs):
+        raise NotImplementedError()
 

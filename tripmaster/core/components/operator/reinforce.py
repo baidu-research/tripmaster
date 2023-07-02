@@ -7,13 +7,14 @@ import numpy as np
 
 from tripmaster import TMBackendFactory
 from tripmaster.core.components.environment.base import TMEnvironment, TMScenario, TMEnvironmentPool, \
-    TMBatchEnvironmentInterface
+     TMEnvironmentPoolGroup, TMBatchEnvironment
 from tripmaster.core.components.evaluator import MachineEvaluationStreamInfo
+from tripmaster.core.components.machine.data_traits import TMSampleBatchTraits
 from tripmaster.core.components.machine.reinforce import TMPolicyMachineInterface
 
 from tripmaster import logging
 from tripmaster.core.components.operator.operator import TMOperator, TMEvaluatorMixin, TMLearnerMixin
-from tripmaster.core.concepts.component import TMConfigurable
+from tripmaster.core.concepts.component import TMConfigurable, TMSerializableComponent
 from tripmaster.core.concepts.contract import TMContractChannel
 from tripmaster.core.concepts.data import TMDataStream, TMDataLevel
 from tqdm import tqdm
@@ -22,8 +23,8 @@ from tripmaster.utils.stream import isolate_iterators
 
 logger = logging.getLogger(__name__)
 
-
-def train_worker(local_rank, learner, batch_env, runtime_options):
+from tripmaster import P
+def train_worker(local_rank, learner, env_pool_group, runtime_options):
     """
 
     Args:
@@ -37,7 +38,7 @@ def train_worker(local_rank, learner, batch_env, runtime_options):
     """
     logger.warning(f"start trainer {local_rank}")
 
-    learner.train(local_rank, batch_env, runtime_options)
+    learner.train(local_rank, env_pool_group, runtime_options)
 
 class TMReplayBuffer(TMConfigurable):
 
@@ -75,12 +76,60 @@ class TMMemoryReplayBuffer(TMReplayBuffer):
 
 
 
+class TMExploreStrategy(TMSerializableComponent):
+
+    ObservationBatchTraits = TMSampleBatchTraits
+    ActionBatchTraits = TMSampleBatchTraits
+
+    @abstractmethod
+    def sample_action(self, action_distribution, **kwargs):
+        """
+        sample actions from distribution
+        Args:
+            action_distribution: [batch_size, num_actions, action_space_size]
+            **kwargs:
+        """
+        pass
+
+    def explore(self, machine: TMPolicyMachineInterface, batch_env: TMBatchEnvironment, device):
+
+        explored = []
+
+        observation, info = batch_env.reset()
+        batch_mask = T.zeros(batch_env.batch_size(), dtype=P.Types.Bool, device=device)
+        while True:
+            masked_observation = self.ObservationBatchTraits.mask_batch(observation, batch_mask)
+            action_dist = machine.action_distribution(masked_observation)
+            masked_action = self.sample_action(action_dist)
+            action = self.ObservationBatchTraits.recover_masked_batch(masked_action, batch_mask)
+            observation, reward, terminated, truncated, info = batch_env.step(action, batch_mask=batch_mask)
+            batch_mask = T.logical_or(batch_mask, terminated)
+            batch_mask = T.logical_or(batch_mask, truncated)
+
+            explored.append({
+                "observation": observation,
+                "action": action,
+                "reward": reward,
+                "batch_mask": batch_mask
+            })
+
+            if T.all(batch_mask):
+                break
+
+        # compute future rewards for each step
+
+        batch_env.future_reward(explored)
+
+        return explored
+
+
+
 class TMReinforceOperator(TMOperator):
     """
     TMReinforceOperator
     """
 
-    def play_once(self, environment: TMBatchEnvironmentInterface, device):
+    def play_once(self, environment: TMBatchEnvironment, device):
         """
 
             Args:
@@ -106,47 +155,47 @@ class TMReinforceOperator(TMOperator):
         accumulated_rewards = environment.accumulated_reward(all_rewards)
 
         return last_observations, accumulated_rewards, batch_mask
-
-    def fit_memory(self, env_pool: TMEnvironmentPool, scenario: TMScenario):
-
-        assert env_pool.level == TMDataLevel.Machine
-
-        return env_pool.apply_modeler(self.memory_modeler, scenario)
-
-    def unfit_memory(self, memory_samplestream: TMDataStream, scenario: TMScenario, with_truth=False):
-        machine_samplestream = self.memory_modeler.reconstruct_datastream(memory_samplestream,
-                                                                          scenario=self.scenario)
-
-        return machine_samplestream
-
-    def batchify(self, env_pool: TMEnvironmentPool, scenario: TMScenario):
-        """
-
-        Args:
-            problem_dataset:
-
-        Returns:
-
-        """
-        assert env_pool.level == TMDataLevel.Memory
-
-        return env_pool.batchify(self.batch_modeler, scenario)
-
-
-    def unbatchify(self, machine_batchstream: TMDataStream, scenario: TMScenario, with_truth=False):
-        """
-
-        Args:
-            problem_dataset:
-
-        Returns:
-
-        """
-
-        machine_samplestream = self.batch_modeler.reconstruct_datastream(machine_batchstream,
-                                                                         scenario=self.scenario)
-
-        return machine_samplestream
+    #
+    # def fit_memory(self, env_pool: TMEnvironmentPool, scenario: TMScenario):
+    #
+    #     assert env_pool.level == TMDataLevel.Machine
+    #
+    #     return env_pool.apply_modeler(self.memory_modeler, scenario)
+    #
+    # def unfit_memory(self, memory_samplestream: TMDataStream, scenario: TMScenario, with_truth=False):
+    #     machine_samplestream = self.memory_modeler.reconstruct_datastream(memory_samplestream,
+    #                                                                       scenario=self.scenario)
+    #
+    #     return machine_samplestream
+    #
+    # def batchify(self, env_pool: TMEnvironmentPool, scenario: TMScenario):
+    #     """
+    #
+    #     Args:
+    #         problem_dataset:
+    #
+    #     Returns:
+    #
+    #     """
+    #     assert env_pool.level == TMDataLevel.Memory
+    #
+    #     return env_pool.batchify(self.batch_modeler, scenario)
+    #
+    #
+    # def unbatchify(self, machine_batchstream: TMDataStream, scenario: TMScenario, with_truth=False):
+    #     """
+    #
+    #     Args:
+    #         problem_dataset:
+    #
+    #     Returns:
+    #
+    #     """
+    #
+    #     machine_samplestream = self.batch_modeler.reconstruct_datastream(machine_batchstream,
+    #                                                                      scenario=self.scenario)
+    #
+    #     return machine_samplestream
 
 class TMReinforceEvaluatorMixin(TMEvaluatorMixin):
     """
@@ -240,9 +289,9 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
     ReplayBuffer = TMMemoryReplayBuffer
     ExploreStrategy = None
 
-    def __init__(self, hyper_params, host: TMReinforceOperator=None, **kwargs):
+    def __init__(self, hyper_params, **kwargs):
 
-        super().__init__(hyper_params, host=host, **kwargs)
+        super().__init__(hyper_params, **kwargs)
 
         self.replay_buffer = self.ReplayBuffer(self.hyper_params.replay_buffer)
         self.explore_strategy = self.ExploreStrategy(self.hyper_params.explore_strategy)
@@ -292,13 +341,16 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
                     batch = self.reallocate_data(batch, local_rank)
 
                     batch_size = batch_traits.batch_size(batch)
-                    observation = batch["observations"]
-                    action = batch["actions"]
+                    observation = batch["observation"]
+                    action = batch["action"]
 
-                    future_reward = batch["future_rewards"]
+                    future_reward = batch["future_reward"]
                     batch_mask = batch["batch_mask"]
 
-                    log_prob = self.machine.action_prob(observation, action, batch_mask=batch_mask)
+                    observation = self.machine.ObservationBatchTraits.mask_batch(observation, batch_mask)
+                    action = self.machine.ActionBatchTraits.mask_batch(action, batch_mask)
+
+                    log_prob = self.machine.action_prob(observation, action)
 
                     J = (log_prob * future_reward).mean()
                     J.requires_grad = True
@@ -343,7 +395,7 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
         return total_J / total_sample_num if total_sample_num > 0 else 0.0
 
 
-    def train(self, local_rank, batch_env_pool: TMEnvironmentPool, runtime_options):
+    def train(self, local_rank, env_pool_group: TMEnvironmentPoolGroup, runtime_options):
         """
 
         Args:
@@ -391,11 +443,11 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
         self.epoch = 0
         self.step = 0
 
-        batch_env_pool.scenario = TMScenario.Learning
+        assert runtime_options.batching.type == "fixed_size"
+        batch_size = runtime_options.batching.strategies.fixed_size.batch_size
+        for batch_env in env_pool_group.choose(batch_size):
 
-        for batch_env in batch_env_pool.envs():
-
-            self.optimization_strategy.on_epoch_start(self.epoch)
+            self.optimization_strategy.on_epoch_start(self.machine, self.epoch)
 
             if self.optimization_strategy.finish():
                 logger.info("optimizer terminate criterion satisfied. Optimization Finish.")
@@ -413,15 +465,15 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
 
             loss = self.train_step(local_rank, "replay_buffer", training_datastream["replay_buffer"])
 
-            self.optimization_strategy.on_epoch_end(self.epoch)
+            self.optimization_strategy.on_epoch_end(self.machine, self.epoch)
 
             self.epoch += 1
-            if self.evaluation_trigger.trigger(self):
-                P.OptimizerBehaviors.set_inference_mode(self.machine)
-                self.eval_and_select_model(batch_env_pool, local_rank, self.epoch, self.step)
-                P.OptimizerBehaviors.set_train_mode(self.machine)
+            # if self.evaluation_trigger.trigger(self):
+            #     P.OptimizerBehaviors.set_inference_mode(self.machine)
+            #     self.eval_and_select_model(batch_env_pool, local_rank, self.epoch, self.step)
+            #     P.OptimizerBehaviors.set_train_mode(self.machine)
 
-    def operate(self, env: TMEnvironment, runtime_options):
+    def operate(self, env_pool_group: TMEnvironmentPoolGroup, runtime_options):
         """
 
         Args:
@@ -436,10 +488,10 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
         # logger.info(f"operate with parameter {self.runtime_options}")
 #        assert machine_stream.level == TMDataLevel.Batch, f"wrong data level, {machine_stream.level}"
 
-        self.distributed_strategy.run(train_worker, env, runtime_options)
+        self.distributed_strategy.run(train_worker, env_pool_group, runtime_options)
 
 
-class TMReinforcedLearner(TMReinforceOperator, TMReinforceLearnerMixin, TMReinforceEvaluatorMixin):
+class TMReinforceLearner(TMReinforceOperator, TMReinforceLearnerMixin, TMReinforceEvaluatorMixin):
     """
     TM Reinforced Learner
     """
@@ -449,7 +501,7 @@ class TMReinforcedLearner(TMReinforceOperator, TMReinforceLearnerMixin, TMReinfo
         super().__init__(hyper_params, machine=machine, states=states, host=self,
                          scenario=TMScenario.Learning, **kwargs)
 
-    def operate(self, env_pool: TMEnvironmentPool, runtime_options):
+    def operate(self, env_pool_group: TMEnvironmentPoolGroup, runtime_options):
         """
 
         Args:
@@ -462,9 +514,9 @@ class TMReinforcedLearner(TMReinforceOperator, TMReinforceLearnerMixin, TMReinfo
         """
 
         # logger.info(f"operate with parameter {self.runtime_options}")
-        assert env_pool.level == TMDataLevel.Machine, f"wrong data level, {env_pool.level}"
+        # assert env_pool.level == TMDataLevel.Machine, f"wrong data level, {env_pool.level}"
 
-        env_pool = self.fit_memory(env_pool, scenario=self.scenario)
-        env_pool = self.batchify(env_pool, scenario=self.scenario)
+        # env_pool = self.fit_memory(env_pool, scenario=self.scenario)
+        # env_pool = self.batchify(env_pool, scenario=self.scenario)
 
-        self.distributed_strategy.run(train_worker, env_pool, runtime_options)
+        self.distributed_strategy.run(train_worker, env_pool_group, runtime_options)

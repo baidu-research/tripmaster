@@ -23,33 +23,14 @@ class TMOfflineInputStream(TMApplicationIOStream):
 
     def data_stream(self):
 
-        if self.hyper_params.machine.serialize and self.hyper_params.machine.serialize.load:
-            machine_data = TMDataStream.deserialize(self.hyper_params.machine.serialize.load,
-                                                   self.hyper_params.machine)
-            logger.info(f"serialized machine data loaded from {self.hyper_params.machine.serialize} ")
-            return machine_data
-
-        if self.hyper_params.problem.serialize and self.hyper_params.problem.serialize.load:
-            problem_data = TMDataStream.deserialize(self.hyper_params.problem.serialize.load,
-                                                   self.hyper_params.problem)
-            logger.info(f"serialized problem data loaded from {self.hyper_params.problem.serialize} ")
-            return problem_data
-
-        if self.hyper_params.task.serialize and self.hyper_params.task.serialize.load:
-            task_data = TMDataStream.deserialize(self.hyper_params.task.serialize.load,
-                                                self.hyper_params.task)
-            logger.info(f"serialized task data loaded from {self.hyper_params.task.serialize}")
-            return task_data
-
-
         if "task" in self.hyper_params:
-            return self.DataStreamType(self.hyper_params.task)
+            return self.DataStreamType.create(self.hyper_params.task)
 
         if "problem" in self.hyper_params:
-            return self.DataStreamType(self.hyper_params.problem)
+            return self.DataStreamType.create(self.hyper_params.problem)
 
         if "machine" in self.hyper_params:
-            return self.DataStreamType(self.hyper_params.machine)
+            return self.DataStreamType.create(self.hyper_params.machine)
 
         return self.DataStreamType(None)
 

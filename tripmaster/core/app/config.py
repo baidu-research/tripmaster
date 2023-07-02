@@ -158,6 +158,15 @@ class System(Component):
 
 #    contracts: Contracts = Contracts()
 
+@dataclass
+class ReinforceSystem(Component):
+
+    env_builder: Optional[Dict] = None
+    pm_modeler: Optional[Dict] = None
+    policy: Machine = field(default_factory=lambda: Machine())
+    learner: Optional[Learner] = None
+    inferencer: Optional[Inferencer] = None
+
 
 @dataclass
 class MultiSystem(Component):

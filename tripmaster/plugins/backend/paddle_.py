@@ -373,6 +373,27 @@ class PaddleBasicTensorOperations(TMBasicTensorOperations):
 
     Tensor = paddle.Tensor
 
+
+    @classmethod
+    def zeros(cls, *args, dtype=None, device=None):
+        return paddle.zeros(args, dtype=dtype, device=device)
+
+    @classmethod
+    def ones(cls, *args, dtype=None, device=None):
+        return paddle.ones(args, dtype=dtype, device=device)
+
+    @classmethod
+    def logical_and(cls, a, b):
+        return paddle.logical_and(a, b)
+
+    @classmethod
+    def logical_or(cls, a, b):
+        return paddle.logical_or(a, b)
+
+    @classmethod
+    def logical_not(cls, a):
+        return paddle.logical_not(a)
+
     @classmethod
     def is_tensor(self, x):
         return isinstance(x, paddle.Tensor)

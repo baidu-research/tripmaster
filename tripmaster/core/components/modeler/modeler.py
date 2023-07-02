@@ -247,8 +247,6 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
         Returns:
         """
 
-        processed = []
-
         for idx, sample in enumerate(data_channel):
 
             try:
@@ -261,16 +259,12 @@ class TMModeler(TMSerializableComponent, TMModelerInterface):
             for result in results:
                 uri_key = TMDataLevel.uri_key(data_channel.level)
                 result[uri_key] = idx
-                if scenario == TMScenario.Learning:
-                    processed.append(result)
-                else:
-                    yield result
+                yield result
 
         # make sure the problem samples for a raw sample are ordered together
         # processed.sort(key=lambda x: x[TMTaskDataStream.SAMPLE_URI_KEY])
         # processed = add_sample_uri(processed, TMProblemDataStream.SAMPLE_URI_KEY)
-        if scenario == TMScenario.Learning:
-            return processed
+
 
     def reconstruct_datachannel(self, data_channel: TMDataChannel, scenario: TMScenario,
                                 for_eval,

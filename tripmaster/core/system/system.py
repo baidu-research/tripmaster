@@ -631,6 +631,7 @@ class TMSystem(TMSerializableComponent):
 
             logger.info(f"machine data build: ")
             if self.is_learning():
+                input_data_stream.reuse()
                 for channel in input_data_stream.channels:
                     logger.info(f"\t{channel}: {len(input_data_stream[channel])}")
 
