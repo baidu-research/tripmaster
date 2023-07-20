@@ -32,8 +32,9 @@ class TMSuperviseSystem(TMSystem):
 
         input_datastream = self.build_machine_datastream(input_datastream)
 
+
         #        self.tp_modeler.update_downstream_component(self.task, self.problem)
-        if self.is_learning():
+        if self.is_learning() and runtime_options.mode != "eval":
             input_datastream.reuse()
 
         for callback in self.callbacks:
