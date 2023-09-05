@@ -117,9 +117,6 @@ class TMExploreStrategy(TMSerializableComponent):
             terminated = TMSampleBatchTraits.to_device(terminated, device=device)
             truncated = TMSampleBatchTraits.to_device(truncated, device=device)
 
-            batch_mask = T.logical_or(batch_mask, terminated)
-            batch_mask = T.logical_or(batch_mask, truncated)
-
             explored.append({
                 "observation": observation,
                 "action": action,
@@ -127,6 +124,9 @@ class TMExploreStrategy(TMSerializableComponent):
                 "reward": reward,
                 "batch_mask": batch_mask
             })
+
+            batch_mask = T.logical_or(batch_mask, terminated)
+            batch_mask = T.logical_or(batch_mask, truncated)
             
             if T.all(batch_mask):
                 break
