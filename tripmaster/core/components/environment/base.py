@@ -37,6 +37,7 @@ import math
 from tripmaster.core.concepts.hyper_params import TMHyperParams
 from tripmaster.core.concepts.scenario import TMScenario
 
+
 class TMEnvironmentInterface:
 
 
@@ -85,16 +86,24 @@ class TMEnvironment(TMSerializableComponent):
         if not self.hyper_params.gamma:
             self.hyper_params.gamma = 1.0
 
-        self.__scenario = scenario
-        self.__eval = eval
+        self._scenario = scenario
+        self._eval = eval
 
     @property
     def scenario(self):
-        return self.__scenario
+        return self._scenario
 
     @property
     def eval(self):
-        return self.__eval
+        return self._eval
+    
+    # @property 
+    # def device(self):
+    #     return self._device
+
+    # @device.setter
+    # def device(self, value):
+    #     self._device = value
 
     def accumulated_reward(self, rewards):
         """
@@ -110,7 +119,7 @@ class TMEnvironment(TMSerializableComponent):
                 acc_reward += math.pow(self.hyper_params.gamma, idx) * reward
         return acc_reward
 
-    def future_reward(self, rewards):
+    def future_reward(self, explored):
         """
         Args:
             rewards:
@@ -118,8 +127,9 @@ class TMEnvironment(TMSerializableComponent):
         Returns:
 
         """
-        weighted_reward = [math.pow(self.hyper_params.gamma, idx) * reward
-                           for idx, reward in enumerate(rewards)]
+        
+        weighted_reward = [math.pow(self.hyper_params.gamma, idx) * explore_step["reward"]
+                           for idx, explore_step in enumerate(explored)]
         future_reward = np.cumsum(weighted_reward[-1::-1])[-1::-1]  # reverse cumsum
         return future_reward
 
@@ -231,19 +241,37 @@ class TMBatchEnvironment(TMEnvironment):
 
         observation, reward, terminated, truncated, info = step_results
 
-        observation = self.ObservationBatchTraits.batch(observation)
+        batch_mask = [batch_mask[idx] or terminated[idx] or truncated[idx] for idx in range(self.batch_size())]
+
+        ic(observation)
+        observation_batch = self.ObservationBatchTraits.batch(observation)
+
         reward = T.to_tensor(reward)
         terminated = T.to_tensor(terminated)
         truncated = T.to_tensor(truncated)
 
-        return observation, reward, terminated, truncated, info
+        return observation_batch, reward, terminated, truncated, info
 
     def close(self):
 
         for env in self.__envs:
             env.close()
 
+    def future_reward(self, explored):
+        """
+        Args:
+            rewards:
 
+        Returns:
+
+        """
+        
+        weighted_reward = T.stack([math.pow(self.hyper_params.gamma, idx) * explore_step["reward"]
+                           for idx, explore_step in enumerate(explored)], dim=-1)
+
+        future_reward = T.flip(T.cumsum(T.flip(weighted_reward, dims=[-1]),dim=-1), dims=[-1])  # reverse cumsum
+
+        return future_reward
 
 class TMEnvironmentPool(TMSerializableComponent):
     """
@@ -265,6 +293,9 @@ class TMEnvironmentPool(TMSerializableComponent):
         if states:
             self.load_states(states)
 
+    def reuse(self):
+        pass 
+
     @property
     def name(self):
         return self.__name
@@ -285,9 +316,6 @@ class TMEnvironmentPool(TMSerializableComponent):
 
         indexes = list(range(len(self.__envs)))
         shuffle(indexes)
-
-        ic(len(indexes))
-        ic(sample_num)
 
         for index_chunk in chunked(indexes, sample_num):
             yield TMBatchEnvironment(envs=[self.__envs[index] for index in index_chunk])
@@ -356,9 +384,6 @@ class TMEnvironmentPoolGroup(TMSerializableComponent):
     def pools(self):
         return self._pools.keys()
 
-    @property
-    def learn_pools(self):
-        return self.hyper_params.pools.learn if self.hyper_params.pools.learn else []
 
     # def add_sampled_training_eval_channels(self, ratio=None):
     #
@@ -382,25 +407,29 @@ class TMEnvironmentPoolGroup(TMSerializableComponent):
     #
     #     self.hyper_params.channels.eval = list(set(list(self.hyper_params.channels.eval) + sampled_channels))
 
+    @property
+    def learn_pools(self):
+        return self.hyper_params.learn_pools if self.hyper_params.learn_pools else []
+
     @learn_pools.setter
     def learn_pools(self, value):
-        self.hyper_params.pools.learn = tuple(value)
+        self.hyper_params.learn_pools = tuple(value)
 
     @property
     def eval_pools(self):
-        return self.hyper_params.pools.eval if self.hyper_params.pools.eval else []
+        return self.hyper_params.eval_pools if self.hyper_params.eval_pools else []
 
     @eval_pools.setter
     def eval_pools(self, value):
-        self.hyper_params.pools.eval = tuple(value)
+        self.hyper_params.eval_pools = tuple(value)
 
     @property
     def inference_pools(self):
-        return self.hyper_params.pools.inference if self.hyper_params.pools.inference else []
+        return self.hyper_params.inference_pools if self.hyper_params.inference_pools else []
 
     @inference_pools.setter
     def inference_pools(self, value):
-        self.hyper_params.channels.inference = tuple(value)
+        self.hyper_params.inference_pools = tuple(value)
 
     def __getitem__(self, item):
 
@@ -425,8 +454,8 @@ class TMEnvironmentPoolGroup(TMSerializableComponent):
         for k, v in self._pools.items():
             v.reuse()
 
-        return {"groups": {k: v._data for k, v in self._pools.items() if not k.endswith("#sampled")},
-                "level": self._level}
+        return {"pools": {k: v.envs for k, v in self._pools.items() if not k.endswith("#sampled")},
+                "eval": self._eval, "scenario": self._scenario.name}
 
     def secure_hparams(self):
         import copy
@@ -437,9 +466,11 @@ class TMEnvironmentPoolGroup(TMSerializableComponent):
         return hyper_params
 
     def load_states(self, states):
-        self._level = states["level"]
-        self._pools = {k: TMDataChannel(data=v, level=self._level)
-                        for k, v in states["channels"].items() if not k.endswith("#sampled")}
+        self._scenario = TMScenario[states["scenario"]]
+        self._eval = states["eval"]
+        self._pools = {k: TMEnvironmentPool(hyper_params=None, name=k, 
+                                            envs=v, scenario=self.scenario, eval=self._eval)
+                        for k, v in states["pools"].items() if not k.endswith("#sampled")}
 
 
 class TMEnvironmentPoolGroupBuilder(TMSerializableComponent):
@@ -452,3 +483,26 @@ class TMEnvironmentPoolGroupBuilder(TMSerializableComponent):
     def build(self, ** inputs):
         raise NotImplementedError()
 
+
+class TMDefaultEnvironmentPoolGroupBuilder(TMEnvironmentPoolGroupBuilder):
+    """
+    TMDataDerivedEnvironmentPoolGroupBuilder
+    """
+
+    EnvPoolGroupType: TMEnvironmentPoolGroup = None
+
+    def __init__(self, hyper_params=None):
+        super().__init__(hyper_params=hyper_params)
+        self._test_config = None
+
+    def test(self, test_config):
+        self._test_config = test_config
+
+    def build(self, scenario: TMScenario):
+
+        if TMSerializableComponent.to_load(self.hyper_params.epg):
+            return self.EnvPoolGroupType.deserialize(self.hyper_params.epg.serialize.load)
+
+        return self.EnvPoolGroupType.create(self.hyper_params.epg,  # env pool group
+                                            test_config=self._test_config,
+                                            scenario=scenario)

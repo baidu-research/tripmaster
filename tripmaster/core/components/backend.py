@@ -87,6 +87,14 @@ class TMBasicTensorOperations(object):
         pass
 
     @classmethod
+    def all(cls, a):
+        pass 
+    
+    @classmethod
+    def any(cls, a):
+        pass
+
+    @classmethod
     def logical_and(cls, a, b):
         pass
 

@@ -87,21 +87,34 @@ class TMDataDerivedEnvironmentPoolGroup(TMEnvironmentPoolGroup):
 
 
     def __init__(self, hyper_params,
-                 scenario: TMScenario, eval=False,
+                 scenario: TMScenario=None, eval=False,
                  test_config=None,
                  states=None):
         super().__init__(hyper_params=hyper_params, scenario=scenario,
                          eval=eval, test_config=test_config, states=states)
+        
+
+        if states is not None:
+            self.load_states(states)
+            return 
 
 
         env_type_dict = self.EnvType if isinstance(self.EnvType, dict) else defaultdict(lambda: self.EnvType)
         modeler_type_dict = self.ModelerType if isinstance(self.ModelerType, dict) else defaultdict(lambda: self.ModelerType)
 
+        key_set = set(states["pools"].keys()) if isinstance(self.EnvType, dict) else {"$default$"}
+        self.modeler_dict = dict()
+        for key in key_set:
+            assert key in self.hyper_params.pools, f"modeler {key} is not defined"
+            hyper_params=self.hyper_params.pools[key].modeler
+            self.modeler_dict[key] = modeler_type_dict[key].create(hyper_params=hyper_params)
+
+
         data_stream = self.DataStreamType.create(self.hyper_params.data_stream)
 
-        self.learn_pools = data_stream.learn_channels
-        self.eval_pools = data_stream.eval_channels
-        self.inference_pools = data_stream.inference_channels
+        self.hyper_params.learn_pools = data_stream.learn_channels
+        self.hyper_params.eval_pools = data_stream.eval_channels
+        self.hyper_params.inference_pools = data_stream.inference_channels
 
         if scenario == TMScenario.Learning:
             pool_names = data_stream.learn_channels
@@ -111,15 +124,14 @@ class TMDataDerivedEnvironmentPoolGroup(TMEnvironmentPoolGroup):
         for channel in pool_names + self.eval_pools:
             key = channel.split('.')[0]
             env_type = env_type_dict[key]
-            if channel in self.hyper_params.env:
+            if channel in self.hyper_params.pools:
                 params_key = channel
             else:
                 params_key = "$default$"
 
-            env_hyper_params = self.hyper_params.env[params_key].config
-            modeler_hyper_params = self.hyper_params.env[params_key].modeler
+            env_hyper_params = self.hyper_params.pools[params_key].env
 
-            modeler = modeler_type_dict[key].create(hyper_params=modeler_hyper_params)
+            modeler = self.modeler_dict[params_key]
             eval = channel in self.eval_pools
 
             used_data = data_stream[channel]
@@ -146,26 +158,49 @@ class TMDataDerivedEnvironmentPoolGroup(TMEnvironmentPoolGroup):
                                           scenario=scenario,
                                           eval=eval,
                                           states=None)
+        
+    
+    def states(self):
+        for k, v in self._pools.items():
+            v.reuse()
 
-class TMDataDerivedEnvironmentPoolGroupBuilder(TMEnvironmentPoolGroupBuilder):
-    """
-    TMDataDerivedEnvironmentPoolGroupBuilder
-    """
+        return {"pools": {k: [e.states() for e in v.envs] 
+                           for k, v in self._pools.items() if not k.endswith("#sampled")},
+                "modelers": {k: v.states() for k, v in self.modeler_dict.items()},
+                "eval": self._eval, "scenario": self._scenario.name}
 
-    EnvPoolGroupType: TMEnvironmentPoolGroup = None
+    def secure_hparams(self):
+        import copy
+        hyper_params = copy.deepcopy(self.hyper_params)
+        for channel in hyper_params.channels:
+            hyper_params.channels[channel] = [k for k in hyper_params.channels[channel]
+                                              if not k.endswith("#sampled")]
+        return hyper_params
 
-    def __init__(self, hyper_params=None):
-        super().__init__(hyper_params=hyper_params)
-        self._test_config = None
+    def load_states(self, states):
+        self._scenario = TMScenario[states["scenario"]]
+        self._eval = states["eval"]
+        
 
-    def test(self, test_config):
-        self._test_config = test_config
+        key_set = set(states["pools"].keys()) if isinstance(self.EnvType, dict) else {"$default$"}
+        modeler_type_dict = self.ModelerType if isinstance(self.ModelerType, dict) else defaultdict(lambda: self.ModelerType)
 
-    def build(self, scenario: TMScenario):
+        self.modeler_dict = dict()
+        for key in key_set:
+            assert key in self.hyper_params.pools, f"modeler {key} is not defined"
+            hyper_params=self.hyper_params.pools[key].modeler
+            self.modeler_dict[key] = modeler_type_dict[key](hyper_params=hyper_params, states=states["modelers"][key])
 
-        return self.EnvPoolGroupType.create(self.hyper_params.pool_group,
-                                            test_config=self._test_config,
-                                            scenario=scenario)
+        env_type_dict = self.EnvType if isinstance(self.EnvType, dict) else defaultdict(lambda: self.EnvType)
+        self._pools = dict()
+        for k, v in states["pools"].items():
+            if k.endswith("#sampled"):
+                continue
 
-
+            envs = [env_type_dict[k](hyper_params=self.hyper_params.pools[k].env, states=states)
+                    for states in v]
+            
+            self._pools[k] = TMEnvironmentPool(hyper_params=None, name=k, 
+                                            envs=envs, scenario=self.scenario, eval=self._eval)
+        
 

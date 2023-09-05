@@ -15,7 +15,7 @@ from torch.utils.data import Dataset
 from torch.utils.data import Sampler
 import math
 import numpy as np
-from typing import Iterator, Iterable, Optional, Sequence, List, TypeVar, Generic, Sized, Union
+from typing import Any, Iterator, Iterable, Optional, Sequence, List, TypeVar, Generic, Sized, Union
 from copy import deepcopy
 import multiprocessing
 from multiprocessing import Process
@@ -366,7 +366,12 @@ class TorchTypes(TMTypes):
 
 from more_itertools import chunked
 
-class TorchBasicTensorOperations(TMBasicTensorOperations):
+class TensorOpMeta(type):
+    def __getattr__(cls, name):
+        return getattr(torch, name)
+
+
+class TorchBasicTensorOperations(TMBasicTensorOperations, metaclass=TensorOpMeta):
 
     Tensor = torch.Tensor
 
@@ -377,6 +382,14 @@ class TorchBasicTensorOperations(TMBasicTensorOperations):
     @classmethod
     def ones(cls, *args, dtype=None, device=None):
         return torch.ones(* args, dtype=dtype, device=device)
+    
+    @classmethod
+    def all(cls, a):
+        return torch.all(a)
+    
+    @classmethod
+    def any(cls, a):
+        return torch.any(a)
 
     @classmethod
     def logical_and(cls, a, b):

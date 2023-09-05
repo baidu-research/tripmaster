@@ -5,9 +5,9 @@ import yaml
 from omegaconf import OmegaConf
 
 from tripmaster.core.app.config import TMConfig
-from tripmaster.core.concepts.component import TMConfigurable
+from tripmaster.core.concepts.component import TMConfigurable, TMSerializableComponent
 from tripmaster.core.concepts.hyper_params import TMHyperParams
-from tripmaster.core.system.system import TMSystemRuntimeCallbackInterface, is_multi_system, to_save
+from tripmaster.core.system.system import TMSystemRuntimeCallbackInterface, is_multi_system
 from tripmaster import logging
 import os
 
@@ -46,23 +46,23 @@ class TMDefaultSystemRuntimeCallback(TMSystemRuntimeCallbackInterface, TMConfigu
 
     def on_data_phase_finished(self, system):
 
-        if to_save(system.hyper_params.task):
+        if TMSerializableComponent.to_save(system.hyper_params.task):
             system.task.serialize(system.hyper_params.task.serialize.save)
             logger.info("task serialized")
 
-        if to_save(system.hyper_params.tp_modeler):
+        if TMSerializableComponent.to_save(system.hyper_params.tp_modeler):
             system.tp_modeler.serialize(system.hyper_params.tp_modeler.serialize.save)
             logger.info("tp_modeler serialized")
 
-        if to_save(system.hyper_params.problem):
+        if TMSerializableComponent.to_save(system.hyper_params.problem):
             system.problem.serialize(system.hyper_params.problem.serialize.save)
             logger.info("problem serialized")
 
-        if to_save(system.hyper_params.pm_modeler):
+        if TMSerializableComponent.to_save(system.hyper_params.pm_modeler):
             system.pm_modeler.serialize(system.hyper_params.pm_modeler.serialize.save)
             logger.info("pm_modeler serialized")
 
-        if to_save(system.hyper_params):
+        if TMSerializableComponent.to_save(system.hyper_params):
             system.serialize(system.hyper_params.serialize.save)
             logger.info("system serialized")
 

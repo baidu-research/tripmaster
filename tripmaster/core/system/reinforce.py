@@ -39,7 +39,7 @@ class TMReinforceSystem(TMSystem):
         self.lazy_update_test_setting()
 
 
-        if runtime_options.mode == "data":
+        if runtime_options.mode == "env":
             self.post_system_creation()
             result = None
         else:

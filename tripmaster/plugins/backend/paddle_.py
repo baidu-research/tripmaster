@@ -382,6 +382,15 @@ class PaddleBasicTensorOperations(TMBasicTensorOperations):
     def ones(cls, *args, dtype=None, device=None):
         return paddle.ones(args, dtype=dtype, device=device)
 
+
+    @classmethod
+    def all(cls, a):
+        return paddle.all(a)
+    
+    @classmethod
+    def any(cls, a):
+        return paddle.any(a)
+    
     @classmethod
     def logical_and(cls, a, b):
         return paddle.logical_and(a, b)

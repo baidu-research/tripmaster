@@ -373,7 +373,19 @@ class TMSerializableComponent(TMComponent, TMSerializable):
 
         return component
     
+    @classmethod
+    def to_save(cls, config):
+        """
+        check whether the config requests to save
+        """
+        return (config and config.serialize and config.serialize.save)
 
+    @classmethod
+    def to_load(cls, config):
+        """
+        check whether the config requests to save
+        """
+        return (config and config.serialize and config.serialize.load)
 
 class TMMultiComponentMixin(object):
     """

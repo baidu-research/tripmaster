@@ -8,7 +8,7 @@ from omegaconf import OmegaConf
 
 from tripmaster.core.app.config import TMConfig
 from tripmaster.core.app.standalone import TMDefaultSystemRuntimeCallback
-from tripmaster.core.concepts.component import TMConfigurable
+from tripmaster.core.concepts.component import TMConfigurable, TMSerializableComponent
 from tripmaster.core.concepts.hyper_params import TMHyperParams
 from tripmaster.core.system.system import is_multi_system
 from tripmaster.core.concepts.scenario import TMScenario
@@ -33,7 +33,7 @@ class TMReinforceApp(TMConfigurable):
         if self.callbacks is None:
             self.callbacks = [TMDefaultSystemRuntimeCallback(self.hyper_params)]
 
-        self.env_pool_builder = self.EnvPoolGroupBuilderType(self.hyper_params.io.env)
+        self.env_pool_builder = self.EnvPoolGroupBuilderType(self.hyper_params.io.epgb) # short for env pool group builder 
         # self.output_stream = self.OutputStreamType(self.hyper_params.io.output)
 
         if self.OutputStreamType:
@@ -89,8 +89,6 @@ class TMReinforceApp(TMConfigurable):
 
         conf = TMHyperParams(OmegaConf.to_container(conf, resolve=True))
 
-        #        conf.freeze()
-
         return conf
 
     def test(self, test_config):
@@ -109,6 +107,10 @@ class TMReinforceApp(TMConfigurable):
             scenario = TMScenario.Inference
 
         env_pool_group = self.env_pool_builder.build(scenario)
+
+        if runtime_options.mode == "env":
+            if TMSerializableComponent.to_save(env_pool_group.hyper_params):
+                env_pool_group.serialize(env_pool_group.hyper_params.serialize.save)
 
         #ToDO : add problem modeled hook here
 

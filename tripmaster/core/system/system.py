@@ -40,18 +40,7 @@ logger = logging.getLogger(__name__)
 #     ON_TASK_DATASTREAM_CREATED = "on_task_datastream_created"
 #     ON_PROBLEM_DATASTREAM_CREATED = "on_problem_datastream_created"
 
-def to_save(config):
-    """
-    check whether the config requests to save
-    """
-    return (config and config.serialize and config.serialize.save)
 
-
-def to_load(config):
-    """
-    check whether the config requests to save
-    """
-    return (config and config.serialize and config.serialize.load)
 
 
 class TMSystemRuntimeCallbackInterface(object):

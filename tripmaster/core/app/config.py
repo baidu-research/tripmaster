@@ -190,7 +190,7 @@ class Data:
 
 @dataclass
 class IO:
-    env: Optional[Dict[str, Any]] = None
+    epgb: Optional[Dict[str, Any]] = None
     input: Optional[Dict[str, Any]] = None
     output: Optional[Dict[str, Any]] = None
 

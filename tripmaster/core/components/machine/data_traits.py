@@ -71,7 +71,10 @@ class TMElementTraitsFactory(object):
             self.batch_traits_map[t] = strategy
 
     def get_element_traits(self, list_of_elems) -> TMElementTraits:
-        element = list_of_elems[0]
+        elements = [elem for elem in list_of_elems if elem is not None]
+        if len(elements) == 0:
+            raise Exception("cannot get element traits from empty list")
+        element = elements[0]
         # elem_type = type(element)
         #
         # if elem_type in self.element_traits_map:
@@ -181,6 +184,9 @@ class TMSampleBatchTraits(object):
     @classmethod
     def batch(cls, samples):
 
+        if all([sample is None for sample in samples]):
+            return None
+
         assert isinstance(samples, Sequence)
         traits = TMElementTraitsFactory.get().get_element_traits(samples)
         return traits.collate(samples)
@@ -277,6 +283,10 @@ class TMSampleBatchTraits(object):
         @rtype:
         """
 
+        if batched_data is None:
+            return None
+
+
         traits = TMElementTraitsFactory.get().get_element_batch_traits(batched_data)
         target_data = traits.to_device(batched_data, device)
 
@@ -285,7 +295,11 @@ class TMSampleBatchTraits(object):
     @classmethod
     def mask_batch(cls, batch_data, batch_mask):
 
+
         from tripmaster import T
+        
+        if T.all(~batch_mask):
+            return batch_data 
 
         if isinstance(batch_mask, (list, tuple)):
             batch_size = len(batch_mask)
@@ -322,30 +336,33 @@ class TMSampleBatchTraits(object):
         """
         from tripmaster import T
 
+        if T.all(~batch_mask):
+            return masked_batch_data 
+
         if isinstance(batch_mask, (list, tuple)):
             batch_size = len(batch_mask)
-            nonzero_index = [i for i, m in enumerate(batch_mask) if m]
-            nonzero_index_size = len(nonzero_index)
+            un_masked_index = [i for i, m in enumerate(batch_mask) if not m]
+            un_masked_index_size = len(un_masked_index)
         elif T.is_tensor(batch_mask):
             batch_size = batch_mask.shape[0]
-            nonzero_index = batch_mask.nonzero().squeeze(1)
-            nonzero_index_size = nonzero_index.shape[0]
+            un_masked_index = (~batch_mask).nonzero().squeeze(1)
+            un_masked_index_size = un_masked_index_size.shape[0]
         else:
             raise Exception(f"unsupported batch mask type: {type(batch_mask)}")
 
         if isinstance(masked_batch_data, collections.Sequence):
-            assert len(masked_batch_data) == nonzero_index_size
+            assert len(masked_batch_data) == un_masked_index_size
             result = [None] * batch_size
             for i, d in enumerate(masked_batch_data):
-                result[nonzero_index[i]] = d
+                result[un_masked_index[i]] = d
             return result
         elif T.is_tensor(masked_batch_data):
-            assert masked_batch_data.shape[0] == nonzero_index_size
+            assert masked_batch_data.shape[0] == un_masked_index_size, f"{masked_batch_data.shape} != {un_masked_index_size}" 
             unmasked_shape = list(masked_batch_data.shape)
             unmasked_shape[0] = batch_size
             result = T.zeros(* unmasked_shape, dtype=masked_batch_data.dtype, device=masked_batch_data.device)
             for i, d in enumerate(masked_batch_data):
-                result[nonzero_index[i]] = d
+                result[un_masked_index[i]] = d
             return result
         elif isinstance(masked_batch_data, collections.Mapping):
             return dict((key, cls.recover_masked_batch(masked_batch_data[key], batch_mask))
