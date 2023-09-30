@@ -116,14 +116,16 @@ class TMDictElementTraits(TMElementTraits):
         """
         assert isinstance(samples, Sequence)
 
-        first_elem = samples[0]
-        assert isinstance(first_elem, dict)
+        dict_elem = [x for x in samples if isinstance(x, dict)]
+        assert len(dict_elem) > 0
+
+        first_elem = dict_elem[0]
 
         batched = dict()
 
         for key in first_elem.keys():
 
-            values = [d[key] for d in samples]
+            values = [d[key] if d is not None else None for d in samples ]
             try:
                 traits = TMElementTraitsFactory.get().get_element_traits(values)
                 batched[key] = traits.collate(values)

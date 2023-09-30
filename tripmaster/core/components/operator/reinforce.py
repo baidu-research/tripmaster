@@ -106,6 +106,7 @@ class TMExploreStrategy(TMSerializableComponent):
             machine.eval()
             with O.no_grad():
                 action_dist, action_info = machine.action_distribution(masked_observation)
+                log_prob = machine.action_prob(masked_observation, action_dist)
 
             masked_action = self.sample_action(action_dist)
             action = self.ActionBatchTraits.recover_masked_batch(masked_action, batch_mask)
@@ -120,9 +121,10 @@ class TMExploreStrategy(TMSerializableComponent):
             explored.append({
                 "observation": observation,
                 "action": action,
+                "log_prob": log_prob,
                 "new_observation": new_observation,
                 "reward": reward,
-                "batch_mask": batch_mask
+                "batch_mask": batch_mask,
             })
 
             batch_mask = T.logical_or(batch_mask, terminated)
@@ -230,7 +232,7 @@ class TMReinforceEvaluatorMixin(TMEvaluatorMixin):
         super().__init__(hyper_params, **kwargs)
 
 
-    def evaluate_envs(self, batch_env_pool: TMEnvironmentPool, local_rank, epoch, step):
+    def evaluate_envs(self, batch_env_pool: TMEnvironmentPool, scenario, local_rank, epoch, step):
         """
             Args:
 
@@ -238,7 +240,7 @@ class TMReinforceEvaluatorMixin(TMEvaluatorMixin):
         batch_traits = self.host.machine.BatchTraits
 
         P.OptimizerBehaviors.set_inference_mode(self.host.machine)
-        batch_env_pool.scenario = TMScenario.Evaluation
+        batch_env_pool.scenario = scenario
 
         eval_env_nums = 0
         with P.OptimizerBehaviors.no_grad():
@@ -269,12 +271,12 @@ class TMReinforceEvaluatorMixin(TMEvaluatorMixin):
                     logger.exception(e)
                     raise e
 
-    def evaluate(self, batch_env_pool: TMEnvironmentPool, local_rank, epoch, step):
+    def evaluate(self, batch_env_pool: TMEnvironmentPool, scenario, local_rank, epoch, step):
 
         # if local_rank != 0:
         #     return
 
-        batch_env_pool.scenario = TMScenario.Evaluation
+        batch_env_pool.scenario = scenario
 
         truth_machine_datastream = TMDataStream()
         truth_machine_datastream.level = TMDataLevel.Batch
@@ -287,7 +289,7 @@ class TMReinforceEvaluatorMixin(TMEvaluatorMixin):
         channeled_reward_streams = dict()
 
         reward_stream, truth_stream, inferenced_stream = isolate_iterators(
-                self.evaluate_envs(batch_env_pool, local_rank, epoch, step),
+                self.evaluate_envs(batch_env_pool, scenario, local_rank, epoch, step),
                 3
             )
         channeled_reward_streams["eval"] = reward_stream
@@ -323,11 +325,10 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
 
         """
         device = self.device(local_rank)
-        ic(device)
+
 
         P.OptimizerBehaviors.set_inference_mode(machine=self.machine)
-        for explored_data in tqdm(self.explore_strategy.explore(self.machine, environment, device),
-                                 desc="Explore"):
+        for explored_data in self.explore_strategy.explore(self.machine, environment, device):
 
             self.replay_buffer.accept(explored_data)
 
@@ -373,6 +374,9 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
 
                     log_prob = self.machine.action_prob(observation, action)
 
+                    ic(log_prob)
+                    ic(future_reward) # future reward may return nan
+
                     J = (log_prob * future_reward).mean()
                     # J.requires_grad = True
 
@@ -407,11 +411,7 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
                     logger.exception(e)
                     raise e
 
-                self.step += 1
-                if self.evaluation_trigger.trigger(self):
-                    P.OptimizerBehaviors.set_inference_mode(self.machine)
-                    self.eval_and_select_model(data_loader, local_rank, self.epoch, self.step)
-                    P.OptimizerBehaviors.set_train_mode(self.machine)
+
 
         return total_J / total_sample_num if total_sample_num > 0 else 0.0
 
@@ -466,29 +466,40 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
 
         assert runtime_options.batching.type == "fixed_size"
         batch_size = runtime_options.batching.strategies.fixed_size.batch_size
-        for batch_env in env_pool_group.choose(batch_size):
+        import torch 
 
-            self.optimization_strategy.on_epoch_start(self.machine, self.epoch)
+        while True:
+            with torch.autograd.detect_anomaly():
+                for batch_env in tqdm(env_pool_group.choose(batch_size), "Env Batch:"):
 
-            if self.optimization_strategy.finish():
-                logger.info("optimizer terminate criterion satisfied. Optimization Finish.")
-                break
+                    self.optimization_strategy.on_epoch_start(self.machine, self.epoch)
 
-            self.explore(batch_env, local_rank)
-            training_datastream = TMDataStream(level=TMDataLevel.Machine)
-            training_datastream["replay_buffer"] = self.replay_buffer
-            training_datastream.learn_channels = ("replay_buffer",)
-            #
-            # training_datastream = self.host.memory_modeler.model_datastream(training_datastream,
-            #                                                                 scenario=TMScenario.Learning)
-            # training_datastream = self.host.batch_modeler.model_datastream(training_datastream,
-            #                                                                scenario=TMScenario.Learning)
+                    if self.optimization_strategy.finish():
+                        logger.info("optimizer terminate criterion satisfied. Optimization Finish.")
+                        break
 
-            loss = self.train_step(local_rank, "replay_buffer", training_datastream["replay_buffer"])
+                    self.explore(batch_env, local_rank)
+                    training_datastream = TMDataStream(level=TMDataLevel.Machine)
+                    training_datastream["replay_buffer"] = self.replay_buffer
+                    training_datastream.learn_channels = ("replay_buffer",)
+                    #
+                    # training_datastream = self.host.memory_modeler.model_datastream(training_datastream,
+                    #                                                                 scenario=TMScenario.Learning)
+                    # training_datastream = self.host.batch_modeler.model_datastream(training_datastream,
+                    #                                                                scenario=TMScenario.Learning)
 
-            self.optimization_strategy.on_epoch_end(self.machine, self.epoch)
+                    loss = self.train_step(local_rank, "replay_buffer", training_datastream["replay_buffer"])
+
+                    self.optimization_strategy.on_epoch_end(self.machine, self.epoch)
+
+                    self.step += 1
+                    if self.evaluation_trigger.trigger(self):
+                        P.OptimizerBehaviors.set_inference_mode(self.machine)
+                        self.eval_and_select_model(env_pool_group, local_rank, self.epoch, self.step)
+                        P.OptimizerBehaviors.set_train_mode(self.machine)
 
             self.epoch += 1
+
             # if self.evaluation_trigger.trigger(self):
             #     P.OptimizerBehaviors.set_inference_mode(self.machine)
             #     self.eval_and_select_model(batch_env_pool, local_rank, self.epoch, self.step)
