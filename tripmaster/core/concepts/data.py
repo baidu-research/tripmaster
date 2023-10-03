@@ -161,7 +161,7 @@ class TMDataStream(TMSerializableComponent):
             self.load_states(states)
             logger.info("add sampled training eval channel ")
 
-            if self.hyper_params.train_sample_ratio_for_eval or self.hyper_params.train_sample_ratio_for_eval > 0:
+            if self.hyper_params.train_sample_ratio_for_eval and self.hyper_params.train_sample_ratio_for_eval > 0:
                 ratio = self.hyper_params.train_sample_ratio_for_eval
                 self.add_sampled_training_eval_channels(ratio)
 

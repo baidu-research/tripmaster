@@ -122,7 +122,7 @@ class Operator:
 
 
 @dataclass
-class Learner(Operator):
+class Learner(Operator,dict):
 
     optimizer: Optimizer = field(default_factory=lambda: Optimizer())
     modelselector: Dict[str, Any] = field(default_factory=lambda: dict())
@@ -190,7 +190,7 @@ class Data:
 
 @dataclass
 class IO:
-    epgb: Optional[Dict[str, Any]] = None
+    epg: Optional[Dict[str, Any]] = None
     input: Optional[Dict[str, Any]] = None
     output: Optional[Dict[str, Any]] = None
 

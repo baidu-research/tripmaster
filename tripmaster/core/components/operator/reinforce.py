@@ -19,6 +19,8 @@ from tripmaster.core.concepts.contract import TMContractChannel
 from tripmaster.core.concepts.data import TMDataStream, TMDataLevel
 from tqdm import tqdm
 from tripmaster import P, T, M, D
+import diting.backend as B 
+import diting.backend.nn as nn 
 from tripmaster.utils.stream import isolate_iterators
 
 logger = logging.getLogger(__name__)
@@ -106,9 +108,7 @@ class TMExploreStrategy(TMSerializableComponent):
             machine.eval()
             with O.no_grad():
                 action_dist, action_info = machine.action_distribution(masked_observation)
-                log_prob = machine.action_prob(masked_observation, action_dist)
-
-            masked_action = self.sample_action(action_dist)
+                masked_action, log_prob = self.sample_action(action_dist)
             action = self.ActionBatchTraits.recover_masked_batch(masked_action, batch_mask)
             action_info = self.ActionBatchTraits.recover_masked_batch(action_info, batch_mask)
 
@@ -349,7 +349,7 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
         with tqdm(desc=f"Channel {channel}, Epoch {self.epoch}", leave=False,
                   postfix=dict(batch_size=0, batch_loss=0, average_loss=0), unit="batch") as t:
 
-            total_J = 0.0
+            total_loss = 0.0
             total_sample_num = 0
             for i, batch in enumerate(data_loader):
                 # measure data loading time
@@ -367,17 +367,56 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
                     action = batch["action"]
 
                     future_reward = batch["future_reward"]
+                    log_prob = batch["log_prob"]
                     batch_mask = batch["batch_mask"]
 
                     observation = self.machine.ObservationBatchTraits.mask_batch(observation, batch_mask)
                     action = self.machine.ActionBatchTraits.mask_batch(action, batch_mask)
 
-                    log_prob = self.machine.action_prob(observation, action)
+                    # log_prob = self.machine.action_prob(observation, action)
+                    V = self.machine.critic(observation)          
+                    A_k = future_reward - V.detach()                                                                       # ALG STEP 5
 
-                    ic(log_prob)
-                    ic(future_reward) # future reward may return nan
+                    # One of the only tricks I use that isn't in the pseudocode. Normalizing advantages
+                    # isn't theoretically necessary, but in practice it decreases the variance of 
+                    # our advantages and makes convergence much more stable and faster. I added this because
+                    # solving some environments was too unstable without it.
+                    A_k = (A_k - A_k.mean()) / (A_k.std() + 1e-10)
 
-                    J = (log_prob * future_reward).mean()
+                    batch_loss = 0
+                    # This is the loop where we update our network for some n epochs
+                    for _ in range(self.hyper_params.n_updates_per_iteration):                                                       # ALG STEP 6 & 7
+                        # Calculate V_phi and pi_theta(a_t | s_t)
+                        V, curr_log_probs = self.machine.evaluate_action(observation, action)
+
+                        # Calculate the ratio pi_theta(a_t | s_t) / pi_theta_k(a_t | s_t)
+                        # NOTE: we just subtract the logs, which is the same as
+                        # dividing the values and then canceling the log with e^log.
+                        # For why we use log probabilities instead of actual probabilities,
+                        # here's a great explanation: 
+                        # https://cs.stackexchange.com/questions/70518/why-do-we-use-the-log-in-gradient-based-reinforcement-algorithms
+                        # TL;DR makes gradient ascent easier behind the scenes.
+
+                        ratios = B.exp(curr_log_probs - log_prob)
+
+                        # Calculate surrogate losses.
+                        surr1 = ratios * A_k
+                        surr2 = B.clamp(ratios, 1 - self.hyper_params.clip, 1 + self.hyper_params.clip) * A_k
+
+                        # Calculate actor and critic losses.
+                        # NOTE: we take the negative min of the surrogate losses because we're trying to maximize
+                        # the performance function, but Adam minimizes the loss. So minimizing the negative
+                        # performance function maximizes it.
+                        actor_loss = (-B.min(surr1, surr2)).mean()
+                        critic_loss = nn.MSELoss()(V, future_reward)
+                        entropy_loss = -B.mean(-log_prob)
+
+                        loss = actor_loss + self.hyper_params.ent_coef * entropy_loss + \
+                                self.hyper_params.vf_coef * critic_loss
+
+
+
+                    # J = (log_prob * future_reward).mean()
                     # J.requires_grad = True
 
 
@@ -385,14 +424,17 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
                     # deep_merge_dict(batch, output)
                     # loss = self.machine.loss(output, batch)
 
-                    reduced_J = self.distributed_strategy.sync_loss(J)
+                        loss = self.distributed_strategy.sync_loss(loss)
 
-                    self.optimization_strategy.on_batch_end(self.machine, log_prob, reduced_J, i)
+                        self.optimization_strategy.on_batch_end(self.machine, batch, loss, i)
 
-                    total_J += reduced_J.detach().item() * batch_size
+                        batch_loss += loss.detach().item() * batch_size
+
+                    batch_loss = batch_loss / self.hyper_params.n_updates_per_iteration
+                    total_loss += batch_loss 
                     total_sample_num += batch_size
-                    avg_J = total_J / total_sample_num if total_sample_num > 0 else 0.0
-                    t.set_postfix(batch_J=reduced_J.item(), batch_size=batch_size, average_loss=avg_J, refresh=False)
+                    avg_loss = total_loss / total_sample_num if total_sample_num > 0 else 0.0
+                    t.set_postfix(batch_J=loss.item(), batch_size=batch_size, average_loss=avg_loss, refresh=False)
                     t.update()
 
                 except RuntimeError as e:
@@ -402,18 +444,19 @@ class TMReinforceLearnerMixin(TMLearnerMixin):
                         logger.error(
                             f"Out of Memory for {i}-th Batch, Batch Size = {batch_size}, Data Shapes = {shapes}")
 
-                    logger.exception(e)
+                    # logger.exception(e)
                     raise e
 
                 except Exception as e:
                     shapes = batch_traits.shape(batch)
                     logger.error(f"Learn for {i}-th Batch, Data Shapes = {shapes}")
-                    logger.exception(e)
+                    #
+                    # logger.exception(e)
                     raise e
 
 
 
-        return total_J / total_sample_num if total_sample_num > 0 else 0.0
+        return total_loss / total_sample_num if total_sample_num > 0 else 0.0
 
 
     def train(self, local_rank, env_pool_group: TMEnvironmentPoolGroup, runtime_options):

@@ -243,7 +243,6 @@ class TMBatchEnvironment(TMEnvironment):
 
         batch_mask = [batch_mask[idx] or terminated[idx] or truncated[idx] for idx in range(self.batch_size())]
 
-        ic(observation)
         observation_batch = self.ObservationBatchTraits.batch(observation)
 
         reward = T.to_tensor(reward)
@@ -271,7 +270,7 @@ class TMBatchEnvironment(TMEnvironment):
 
         future_reward = T.flip(T.cumsum(T.flip(weighted_reward, dims=[-1]),dim=-1), dims=[-1])  # reverse cumsum
 
-        return future_reward
+        return future_reward.float()
 
 class TMEnvironmentPool(TMSerializableComponent):
     """
@@ -280,7 +279,7 @@ class TMEnvironmentPool(TMSerializableComponent):
     """
 
     def __init__(self, hyper_params, name: str,
-                 envs=None,
+                 envs= None,
                  scenario=TMScenario.Learning,
                  eval=False,
                  states=None):
@@ -289,7 +288,7 @@ class TMEnvironmentPool(TMSerializableComponent):
         self.__name = name
         self.__scenario = None
         self.__eval = eval
-        self.__envs = envs
+        self.__envs = envs if envs else []
         if states:
             self.load_states(states)
 
@@ -336,7 +335,6 @@ class TMEnvironmentPoolGroup(TMSerializableComponent):
 
     def __init__(self, hyper_params=None, scenario=TMScenario.Learning,
                  eval=False,
-                 test_config=None,
                  states=None):
 
         super().__init__(hyper_params)
@@ -344,7 +342,7 @@ class TMEnvironmentPoolGroup(TMSerializableComponent):
         self._pools = dict()
         self._scenario = scenario
         self._eval = eval
-        self._test_config = test_config
+        
 
         if states is not None:
             self.load_states(states)
@@ -355,6 +353,7 @@ class TMEnvironmentPoolGroup(TMSerializableComponent):
             #     self.add_sampled_training_eval_channels(ratio)
 
             logger.info("sampled training eval channel added")
+
 
     def choose(self, sample_num, eval=False):
 
@@ -385,27 +384,31 @@ class TMEnvironmentPoolGroup(TMSerializableComponent):
         return self._pools.keys()
 
 
-    # def add_sampled_training_eval_channels(self, ratio=None):
-    #
-    #     if ratio is None:
-    #         ratio = self.hyper_params.train_sample_ratio_for_eval
-    #         if not ratio or (isinstance(ratio, (int, float)) and ratio < 0):
-    #             return
-    #
-    #     import random, copy
-    #     sampled_channels = []
-    #     for channel in self.learn_channels:
-    #         assert channel in self.__pools
-    #
-    #         sampled = [copy.deepcopy(sample) for sample in self.__pools[channel]
-    #                    if random.random() < ratio]
-    #         if len(sampled) <= 0:
-    #             continue
-    #         sampled_channels.append(f"{channel}#sampled")
-    #
-    #         self.__pools[f"{channel}#sampled"] = TMDataChannel(data=sampled, level=self.__level)
-    #
-    #     self.hyper_params.channels.eval = list(set(list(self.hyper_params.channels.eval) + sampled_channels))
+    def add_sampled_learning_eval_pools(self, ratio=None):
+    
+        if ratio is None:
+            ratio = self.hyper_params.train_sample_ratio_for_eval
+            if not ratio or (isinstance(ratio, (int, float)) and ratio < 0):
+                return
+    
+        import random, copy
+        sampled_channels = []
+        for channel in self.eval_pools:
+            assert channel in self._pools
+    
+            sampled = [copy.deepcopy(env) for env in self._pools[channel].envs
+                       if random.random() < ratio]
+            if len(sampled) <= 0:
+                continue
+            
+            key = f"{channel}#sampled"
+            sampled_channels.append(key)
+            self._pools[key] = TMEnvironmentPool(hyper_params=None, name=key,
+                                           envs=sampled, scenario=self.scenario,
+                                           eval=self.eval)
+
+    
+        self.hyper_params.eval_pools = list(set(list(self.hyper_params.eval_pools) + sampled_channels))
 
     @property
     def learn_pools(self):
@@ -438,8 +441,8 @@ class TMEnvironmentPoolGroup(TMSerializableComponent):
     def __setitem__(self, key, value):
         if not isinstance(value, TMEnvironmentPool):
             value = TMEnvironmentPool(hyper_params=None, name=key,
-                                      envs=value, scenario=self.scenario,
-                                      eval=self.eval)
+                                           envs=value, scenario=self.scenario,
+                                           eval=self.eval)
 
         self._pools[key] = value
 
@@ -468,41 +471,6 @@ class TMEnvironmentPoolGroup(TMSerializableComponent):
     def load_states(self, states):
         self._scenario = TMScenario[states["scenario"]]
         self._eval = states["eval"]
-        self._pools = {k: TMEnvironmentPool(hyper_params=None, name=k, 
-                                            envs=v, scenario=self.scenario, eval=self._eval)
+        self._pools = {k: TMEnvironmentPool(hyper_params=None, name=k,
+                                                 envs=v, scenario=self.scenario, eval=self._eval)
                         for k, v in states["pools"].items() if not k.endswith("#sampled")}
-
-
-class TMEnvironmentPoolGroupBuilder(TMSerializableComponent):
-
-    @abstractmethod
-    def test(self, test_config):
-        pass
-
-    @abstractmethod
-    def build(self, ** inputs):
-        raise NotImplementedError()
-
-
-class TMDefaultEnvironmentPoolGroupBuilder(TMEnvironmentPoolGroupBuilder):
-    """
-    TMDataDerivedEnvironmentPoolGroupBuilder
-    """
-
-    EnvPoolGroupType: TMEnvironmentPoolGroup = None
-
-    def __init__(self, hyper_params=None):
-        super().__init__(hyper_params=hyper_params)
-        self._test_config = None
-
-    def test(self, test_config):
-        self._test_config = test_config
-
-    def build(self, scenario: TMScenario):
-
-        if TMSerializableComponent.to_load(self.hyper_params.epg):
-            return self.EnvPoolGroupType.deserialize(self.hyper_params.epg.serialize.load)
-
-        return self.EnvPoolGroupType.create(self.hyper_params.epg,  # env pool group
-                                            test_config=self._test_config,
-                                            scenario=scenario)
