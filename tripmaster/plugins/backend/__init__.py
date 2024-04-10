@@ -33,4 +33,4 @@ if "TM_BACKEND" in os.environ:
 
     TMBackendFactory.get().choose(backend_name)
 else:
-    TMBackendFactory.get().choose("paddle")
+    TMBackendFactory.get().choose("cpu")
